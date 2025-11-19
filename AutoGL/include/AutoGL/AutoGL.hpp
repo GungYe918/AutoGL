@@ -25,9 +25,6 @@ namespace AutoGL {
         // GLSL 파일 컴파일 & 렌더 수행
         bool runShaderFile(const std::string& path);
 
-        // compute shader 실행 (중급 난이도)
-        bool runComputeShader(const std::string& path);
-
     private:
         struct Impl;
         Impl* pimpl;

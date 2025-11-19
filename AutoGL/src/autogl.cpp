@@ -40,7 +40,65 @@ namespace AutoGL::detail {
         glBindVertexArray(0);
     }
 
+    static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+        auto* st = (AutoGL::InternalGLState*)glfwGetWindowUserPointer(window);
+        if (!st) return;
 
+        if (button == GLFW_MOUSE_BUTTON_LEFT) {
+            if (action == GLFW_PRESS) {
+                st->mouseDown = true;
+                glfwGetCursorPos(window, &st->clickX, &st->clickY);
+            } else if (action == GLFW_RELEASE) {
+                st->mouseDown = false;
+            }
+        }
+    }
+
+    static void cursor_pos_callback(GLFWwindow* window, double xpos, double ypos) {
+        auto* st = (AutoGL::InternalGLState*)glfwGetWindowUserPointer(window);  
+        st->mouseX = xpos;
+        st->mouseY = ypos;
+    }
+
+    static void setBuiltinUniforms(GLuint program, InternalGLState& st) {
+        GLenum err;
+
+        // iTime - 시간
+        float time = (float)(glfwGetTime() - st.startTime);
+        GLint uTime = glGetUniformLocation(program, "iTime");
+        if (uTime >= 0) {
+            glUniform1f(uTime, time);
+            while ((err = glGetError()) != GL_NO_ERROR) {
+                std::cerr << "GL error after setting iTime: " << err << "\n";
+            }
+        }
+
+        // iResolution - 해상도
+        int w, h;
+        glfwGetFramebufferSize(st.window, &w, &h);
+        GLint uRes = glGetUniformLocation(program, "iResolution");
+        if (uRes >= 0) {
+            glUniform2f(uRes, (float)w, (float)h);
+            while ((err = glGetError()) != GL_NO_ERROR) {
+                std::cerr << "GL error after setting iResolution: " << err << "\n";
+            }
+        }
+
+        // Mouse - 마우스
+        GLint uMouse = glGetUniformLocation(program, "iMouse");
+        if (uMouse >= 0) {
+            glUniform4f(
+                uMouse,
+                (float)st.mouseX,
+                (float)st.mouseY,
+                st.mouseDown ? (float)st.clickX : 0.f,
+                st.mouseDown ? (float)st.clickY : 0.f
+            );
+            while ((err = glGetError()) != GL_NO_ERROR) {
+                std::cerr << "GL error after setting iMouse: " << err << "\n";
+            }
+        }
+    }
 
 } // namespace AutoGL::detail
 
@@ -73,12 +131,16 @@ namespace AutoGL {
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-        state.window = glfwCreateWindow(state.width, state.height, "AutoGL Hot Reload", 0, 0);
+        state.window = glfwCreateWindow(state.width, state.height, "AutoGL Engine", 0, 0);
         if (!state.window) {
             std::cerr << "GLFW window 생성 실패\n";
             return false;
         }
         glfwMakeContextCurrent(state.window);
+        glfwSetWindowUserPointer(state.window, &state);
+
+        glfwSetCursorPosCallback(state.window, detail::cursor_pos_callback);
+        glfwSetMouseButtonCallback(state.window, detail::mouse_button_callback);
 
         if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
             std::cerr << "GLAD load 실패\n";
@@ -97,39 +159,52 @@ namespace AutoGL {
         GLuint program = loadShaderProgram(path);
         if (program == 0) return false;
 
-        glUseProgram(program);
-
         auto& st = pimpl->state;
 
-        // 기본 uniform
-        GLint uTime = glGetUniformLocation(program, "iTime");
-        GLint uRes  = glGetUniformLocation(program, "iResolution");
+        glUseProgram(program);
 
-        double start = glfwGetTime();
+        // compute shader 감지
+        GLint numShaders = 0;
+        glGetProgramiv(program, GL_ATTACHED_SHADERS, &numShaders);
+        std::vector<GLuint> attached(numShaders);
+        glGetAttachedShaders(program, numShaders, nullptr, attached.data());
+
+        bool hasCompute = false;
+        for (GLuint s : attached) {
+            GLint type = 0;
+            glGetShaderiv(s, GL_SHADER_TYPE, &type);
+            if (type == GL_COMPUTE_SHADER) {
+                hasCompute = true;
+            }
+        }
+
+        st.startTime = glfwGetTime();
 
         while (!glfwWindowShouldClose(st.window)) {
-            float time = glfwGetTime() - start;
-            int width, height;
-            glfwGetFramebufferSize(st.window, &width, &height);
 
-            glViewport(0, 0, width, height);
-            glClear(GL_COLOR_BUFFER_BIT);
+            glUseProgram(program);
+            detail::setBuiltinUniforms(program, st);
 
-            if (uTime >= 0) glUniform1f(uTime, time);
-            if (uRes  >= 0) glUniform2f(uRes, (float)width, (float)height);
-
-            glBindVertexArray(st.quadVAO);
-            glDrawArrays(GL_TRIANGLES, 0, 6);
+            if (hasCompute) {
+                glDispatchCompute(8, 8, 1);
+                glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+            } else {
+                glBindVertexArray(st.quadVAO);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+            }
 
             glfwSwapBuffers(st.window);
             glfwPollEvents();
+
+            GLenum err;
+            while ((err = glGetError()) != GL_NO_ERROR) {
+                std::cerr << "GL error in frame loop: " << err << "\n";
+            }
         }
 
         glDeleteProgram(program);
         return true;
     }
-
-
 
     std::vector<ShaderFile> Engine::scanShaderFolder(const std::string& folder) {
         std::vector<ShaderFile> shaders;
@@ -161,23 +236,35 @@ namespace AutoGL {
     GLuint Engine::Impl::tryLoadProgram(const std::string& path) {
         GLuint p = loadShaderProgram(path);
         if (p == 0) {
-            std::cerr << "[AutoGL] Shader 컴파일 실패 → 기존 프로그램 유지\n";
+            std::cerr << "[AutoGL] Shader 컴파일 실패 -> 기존 프로그램 유지\n";
             return 0;
         }
         return p;
     }
 
     void Engine::Impl::swapProgram(GLuint newProg) {
-        if (newProg == 0)
+        if (newProg == 0) {
             return;
-
-        if (currentProgram != 0)
+        }
+        
+        if (currentProgram != 0) {
             glDeleteProgram(currentProgram);
+            GLenum err;
+            while ((err = glGetError()) != GL_NO_ERROR) {
+                std::cerr << "GL error after deleting program: " << err << "\n";
+            }
+        }
 
         currentProgram = newProg;
         glUseProgram(currentProgram);
+
+        GLenum err;
+        while ((err = glGetError()) != GL_NO_ERROR) {
+            std::cerr << "GL error after using new program: " << err << "\n";
+        }
     }
 
+    // mainLoop: shader hot reload loop
     void Engine::mainLoop(const std::string& shaderPath) {
         auto& st = pimpl->state;
 
@@ -187,41 +274,62 @@ namespace AutoGL {
         pimpl->swapProgram(initial);
 
         double startTime = glfwGetTime();
+        st.startTime = startTime;
+
+        // compute or fragment 감지
+        bool hasCompute = false;
+        auto detectCompute = [&](GLuint prog) {
+            GLint count = 0;
+            glGetProgramiv(prog, GL_ATTACHED_SHADERS, &count);
+            std::vector<GLuint> arr(count);
+            glGetAttachedShaders(prog, count, nullptr, arr.data());
+            bool c = false;
+            for (GLuint s : arr) {
+                GLint type = 0;
+                glGetShaderiv(s, GL_SHADER_TYPE, &type);
+                if (type == GL_COMPUTE_SHADER) c = true;
+            }
+            return c;
+        };
+        hasCompute = detectCompute(initial);
 
         while (!glfwWindowShouldClose(st.window)) {
 
-            // 1) 파일 변경 감지
             auto now = fs::last_write_time(shaderPath);
             if (now != lastTime) {
                 lastTime = now;
-                std::cout << "[AutoGL] Shader 변경 감지 → 재컴파일!\n";
+                std::cout << "[AutoGL] shader changed, recompiling\n";
 
                 GLuint np = pimpl->tryLoadProgram(shaderPath);
-                pimpl->swapProgram(np);
+                if (np != 0) {
+                    pimpl->swapProgram(np);
+                    hasCompute = detectCompute(np);
+                    st.startTime = glfwGetTime();
+                }
             }
-
-            // 2) Uniform 업데이트
-            int w, h;
-            glfwGetFramebufferSize(st.window, &w, &h);
-            glViewport(0, 0, w, h);
 
             glClear(GL_COLOR_BUFFER_BIT);
 
             if (pimpl->currentProgram) {
-                double t = glfwGetTime() - startTime;
+                glUseProgram(pimpl->currentProgram);
+                detail::setBuiltinUniforms(pimpl->currentProgram, st);
 
-                GLint uTime = glGetUniformLocation(pimpl->currentProgram, "iTime");
-                GLint uRes  = glGetUniformLocation(pimpl->currentProgram, "iResolution");
-
-                if (uTime >= 0) glUniform1f(uTime, (float)t);
-                if (uRes  >= 0) glUniform2f(uRes, (float)w, (float)h);
-
-                glBindVertexArray(st.quadVAO);
-                glDrawArrays(GL_TRIANGLES, 0, 6);
+                if (hasCompute) {
+                    glDispatchCompute(8, 8, 1);
+                    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+                } else {
+                    glBindVertexArray(st.quadVAO);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                }
             }
 
             glfwSwapBuffers(st.window);
             glfwPollEvents();
+
+            GLenum err;
+            while ((err = glGetError()) != GL_NO_ERROR) {
+                std::cerr << "GL error in mainLoop: " << err << "\n";
+            }
         }
     }
 
