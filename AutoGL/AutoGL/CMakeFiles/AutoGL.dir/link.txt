@@ -1,0 +1,2 @@
+/usr/bin/ar qc libAutoGL.a CMakeFiles/AutoGL.dir/src/autogl.cpp.o CMakeFiles/AutoGL.dir/src/glsl_loader.cpp.o CMakeFiles/AutoGL.dir/src/compute_runner.cpp.o CMakeFiles/AutoGL.dir/src/shadertoy_entry.cpp.o CMakeFiles/AutoGL.dir/glad/src/glad.c.o
+/usr/bin/ranlib libAutoGL.a

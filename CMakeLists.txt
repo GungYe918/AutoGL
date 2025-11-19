@@ -1,28 +1,28 @@
 cmake_minimum_required(VERSION 3.20)
 project(OpenGLStudy LANGUAGES C CXX)
 
-# C++ 버전
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# include/ 디렉토리 검색
+# include dirs
 include_directories(
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/glad/include
 )
 
-# src/ 안의 모든 cpp 자동 수집
+# src cpp 자동 스캔
 file(GLOB_RECURSE SOURCES
     ${CMAKE_SOURCE_DIR}/src/*.cpp
-    ${CMAKE_SOURCE_DIR}/glad/src/glad.c
 )
 
-# FetchContent
+# glad
+set(GLAD_SRC ${CMAKE_SOURCE_DIR}/glad/src/glad.c)
+
+# Fetch GLFW
 include(FetchContent)
 
-# ======================
-# GLFW 자동 다운로드
-# ======================
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL "" FORCE)
+
 FetchContent_Declare(
     glfw
     GIT_REPOSITORY https://github.com/glfw/glfw.git
@@ -30,29 +30,31 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glfw)
 
-# pthread & OpenGL
 find_package(Threads REQUIRED)
 find_package(OpenGL REQUIRED)
 
-# 실행 파일 만들기
-add_executable(${PROJECT_NAME}
+# -------------------------------
+# OpenGLStudy 실행 파일
+# -------------------------------
+add_executable(OpenGLStudy
     ${SOURCES}
-    ${CMAKE_SOURCE_DIR}/glad/src/glad.c   # <- GLAD 로더 C 파일 직접 등록
+    ${GLAD_SRC}
 )
 
-# 링크
-target_link_libraries(${PROJECT_NAME}
+target_link_libraries(OpenGLStudy
     glfw
     OpenGL::GL
     Threads::Threads
 )
 
-# macOS 특수 처리
+# -------------------------------
+# AutoGL 프로젝트 추가
+# -------------------------------
+add_subdirectory(AutoGL)
+
+# macOS frameworks
 if(APPLE)
-    target_link_libraries(${PROJECT_NAME}
-        "-framework Cocoa"
-        "-framework OpenGL"
-        "-framework IOKit"
-        "-framework CoreVideo"
-    )
+    target_link_libraries(OpenGLStudy
+        "-framework Cocoa" "-framework OpenGL"
+        "-framework IOKit" "-framework CoreVideo")
 endif()

@@ -1,38 +1,39 @@
 #!/bin/bash
 
-# 사용법 체크
-if [ -z "$1" ]; then
-    echo "Usage: ./run.sh <src/파일.cpp>"
-    exit 1
-fi
+MODE="$1"
+ARG="$2"
 
-# 입력받은 파일 경로
-SRC_FILE="$1"
-
-# 파일 존재 여부 확인
-if [ ! -f "$SRC_FILE" ]; then
-    echo "Error: file '$SRC_FILE' not found."
-    exit 1
-fi
-
-# 빌드 폴더 생성
 mkdir -p build
-
-# CMake 구성
 cmake -S . -B build || exit 1
-
-# 빌드
 cmake --build build || exit 1
 
-# 실행 파일 이름은 프로젝트명(OpenGLStudy) 기본 세팅
-EXEC="./build/OpenGLStudy"
+# AutoGL 실행 파일 경로
+AUTOGL_EXE="./build/AutoGL/autogl"
 
-# 실행 가능한지 확인
-if [ ! -f "$EXEC" ]; then
-    echo "Error: executable not found at $EXEC"
-    exit 1
+if [ "$MODE" = "--source" ]; then
+    if [ ! -f "$ARG" ]; then
+        echo "Source file not found: $ARG"
+        exit 1
+    fi
+    echo "===== Running OpenGLStudy ====="
+    ./build/OpenGLStudy
+
+elif [ "$MODE" = "--shader" ]; then
+    if [ ! -f "$ARG" ]; then
+        echo "Shader file not found: $ARG"
+        exit 1
+    fi
+    echo "===== Running AutoGL Shader ====="
+
+    if [ ! -f "$AUTOGL_EXE" ]; then
+        echo "AutoGL 실행 파일이 없습니다: $AUTOGL_EXE"
+        exit 1
+    fi
+
+    $AUTOGL_EXE --shader "$ARG"
+
+else
+    echo "Usage:"
+    echo "  ./run.sh --source src/main.cpp"
+    echo "  ./run.sh --shader shader/test.glsl"
 fi
-
-# 실행
-echo "===== Running ====="
-$EXEC
