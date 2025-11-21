@@ -47,7 +47,14 @@ namespace AutoGL::detail {
         if (button == GLFW_MOUSE_BUTTON_LEFT) {
             if (action == GLFW_PRESS) {
                 st->mouseDown = true;
-                glfwGetCursorPos(window, &st->clickX, &st->clickY);
+                double cx, cy;
+                glfwGetCursorPos(window, &cx, &cy);
+
+                int w, h;
+                glfwGetFramebufferSize(window, &w, &h);
+
+                st->clickX = cx;
+                st->clickY = h - cy;
             } else if (action == GLFW_RELEASE) {
                 st->mouseDown = false;
             }
@@ -56,35 +63,58 @@ namespace AutoGL::detail {
 
     static void cursor_pos_callback(GLFWwindow* window, double xpos, double ypos) {
         auto* st = (AutoGL::InternalGLState*)glfwGetWindowUserPointer(window);  
+
+        int w, h;
+        glfwGetFramebufferSize(window, &w, &h);
+
+
         st->mouseX = xpos;
-        st->mouseY = ypos;
+        st->mouseY = h - ypos;
     }
 
     static void setBuiltinUniforms(GLuint program, InternalGLState& st) {
         GLenum err;
 
-        // iTime - 시간
-        float time = (float)(glfwGetTime() - st.startTime);
+        // Time
+        float timeNow = (float)(glfwGetTime() - st.startTime);
+
         GLint uTime = glGetUniformLocation(program, "iTime");
         if (uTime >= 0) {
-            glUniform1f(uTime, time);
-            while ((err = glGetError()) != GL_NO_ERROR) {
-                std::cerr << "GL error after setting iTime: " << err << "\n";
-            }
+            glUniform1f(uTime, timeNow);
         }
 
-        // iResolution - 해상도
+        // TimeDelta
+        double now = glfwGetTime();
+        st.deltaTime = now - st.prevFrameTime;
+        st.prevFrameTime = now;
+
+        GLint uTimeDelta = glGetUniformLocation(program, "iTimeDelta");
+        if (uTimeDelta >= 0) {
+            glUniform1f(uTimeDelta, (float)st.deltaTime);
+        }
+
+        // Frame
+        st.frameCount++;
+        GLint uFrame = glGetUniformLocation(program, "iFrame");
+        if (uFrame >= 0) {
+            glUniform1i(uFrame, st.frameCount);
+        }
+
+        // GlobalTime (alias)
+        GLint uGlobalTime = glGetUniformLocation(program, "iGlobalTime");
+        if (uGlobalTime >= 0) {
+            glUniform1f(uGlobalTime, timeNow);
+        }
+
+        // Resolution
         int w, h;
         glfwGetFramebufferSize(st.window, &w, &h);
         GLint uRes = glGetUniformLocation(program, "iResolution");
         if (uRes >= 0) {
             glUniform2f(uRes, (float)w, (float)h);
-            while ((err = glGetError()) != GL_NO_ERROR) {
-                std::cerr << "GL error after setting iResolution: " << err << "\n";
-            }
         }
 
-        // Mouse - 마우스
+        // Mouse
         GLint uMouse = glGetUniformLocation(program, "iMouse");
         if (uMouse >= 0) {
             glUniform4f(
@@ -94,9 +124,61 @@ namespace AutoGL::detail {
                 st.mouseDown ? (float)st.clickX : 0.f,
                 st.mouseDown ? (float)st.clickY : 0.f
             );
-            while ((err = glGetError()) != GL_NO_ERROR) {
-                std::cerr << "GL error after setting iMouse: " << err << "\n";
+        }
+
+        // Date (year, month, day, seconds)
+        {
+            time_t t = time(nullptr);
+            tm* lt = localtime(&t);
+
+            float seconds = lt->tm_hour * 3600.0f +
+                            lt->tm_min * 60.0f +
+                            lt->tm_sec;
+
+            GLint uDate = glGetUniformLocation(program, "iDate");
+            if (uDate >= 0) {
+                glUniform4f(
+                    uDate,
+                    (float)(lt->tm_year + 1900),
+                    (float)(lt->tm_mon + 1),
+                    (float)(lt->tm_mday),
+                    seconds
+                );
             }
+        }
+
+        // FrameRate (approx)
+        float frameRate = (st.deltaTime > 0.0) ? (float)(1.0 / st.deltaTime) : 0.0f;
+        GLint uRate = glGetUniformLocation(program, "iFrameRate");
+        if (uRate >= 0) {
+            glUniform1f(uRate, frameRate);
+        }
+
+        // Random
+        st.randomValue = (float)rand() / (float)RAND_MAX;
+        GLint uRand = glGetUniformLocation(program, "iRandom");
+        if (uRand >= 0) {
+            glUniform1f(uRand, st.randomValue);
+        }
+
+        // Texture channel sizes (if channels exist later)
+        for (int i = 0; i < 4; i++) {
+            std::string name = "iChannelResolution[" + std::to_string(i) + "]";
+            GLint loc = glGetUniformLocation(program, name.c_str());
+            if (loc >= 0) {
+                glUniform3f(loc, (float)st.texWidth[i], (float)st.texHeight[i], 1.0f);
+            }
+
+            std::string tname = "iChannelTime[" + std::to_string(i) + "]";
+            GLint tloc = glGetUniformLocation(program, tname.c_str());
+            if (tloc >= 0) {
+                glUniform1f(tloc, (float)(glfwGetTime() - st.channelTime[i]));
+            }
+        }
+
+        // Check errors
+        while ((err = glGetError()) != GL_NO_ERROR) {
+            std::cerr << "GL error in setBuiltinUniforms: " << err << "\n";
         }
     }
 

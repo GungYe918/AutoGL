@@ -11,22 +11,41 @@ namespace AutoGL {
         int width = 800;
         int height = 600;
 
+        // Fullscreen quad
         GLuint quadVAO = 0;
         GLuint quadVBO = 0;
 
-        double startTime = 0.0f;
-        
-        // 마우스 상태
+        // Time
+        double startTime = 0.0;
+        double prevFrameTime = 0.0;
+        double deltaTime = 0.0;
+        int frameCount = 0;
+
+        // Random
+        float randomValue = 0.0f;
+
+        // Mouse
         double mouseX = 0.0;
         double mouseY = 0.0;
         bool mouseDown = false;
 
-        // 클릭 시점 좌표 (ShaderToy 호환)
         double clickX = 0.0;
         double clickY = 0.0;
 
-        // texture slots
-        std::vector<GLuint> textures;
+        // Texture channels (ShaderToy style)
+        // iChannel0 ... iChannel3
+        GLuint textures[4] = {0, 0, 0, 0};
+
+        // Texture resolution
+        int texWidth[4]  = {0, 0, 0, 0};
+        int texHeight[4] = {0, 0, 0, 0};
+
+        // Time per texture channel
+        double channelTime[4] = {0.0, 0.0, 0.0, 0.0};
+
+        // If SSBO auto creation is needed for compute shaders
+        // we will store handles here
+        std::vector<GLuint> ssboList;
     };
 
 }
