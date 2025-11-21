@@ -1,19 +1,26 @@
-@type compute
+@type vertex
 #version 450 core
 
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
-
-// AutoGL: SSBO 자동 생성
-layout(std430, binding = 0) buffer Data {
-    uint values[];
-};
-
-// AutoGL built-in uniforms
-uniform float iTime;
-uniform vec2  iResolution;
-uniform vec4  iMouse;
+layout(location = 0) in vec2 aPos;
+out vec2 vUV;
 
 void main() {
-    uint idx = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * 8;
-    values[idx] = idx * 2 + uint(iTime);  // 시간에 따라 값이 약간 변함
+    vUV = (aPos + 1.0) * 0.5;
+    gl_Position = vec4(aPos, 0.0, 1.0);
+}
+
+@type fragment
+#version 450 core
+
+layout(std430, binding = 0) buffer Data {
+    float values[];
+};
+
+in vec2 vUV;
+out vec4 FragColor;
+
+void main() {
+    int idx = int(vUV.x * 255.0);
+    float v = values[idx] / 255.0;
+    FragColor = vec4(v, v, v, 1.0);
 }

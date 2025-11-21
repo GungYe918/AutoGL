@@ -54,9 +54,16 @@ set(AUTOGL_GLAD_SRC
 # Internal sources
 # ----------------------------------------
 set(AUTOGL_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/log.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/autogl.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/gl_engine.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vk_engine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/glsl_loader.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/compute_runner.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/shader_regex.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/gl_shader_common.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/gl_shader_vertex.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/gl_shader_fragment.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/gl_shader_compute.cpp
     ${AUTOGL_GLAD_SRC}
 )
 
