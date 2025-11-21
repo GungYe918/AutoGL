@@ -19,6 +19,7 @@ namespace AutoGL {
     private:
         InternalGLState state_;
         unsigned int currentProgram_ = 0;
+        bool isComputeMode_ = false;
 
         bool initContext();
         unsigned int tryLoadProgram(const std::string& path);

@@ -12,6 +12,107 @@
 #include <sstream>
 #include <vector>
 
+namespace AutoGL::detail {
+
+    static unsigned int createTypedSSBO(std::size_t count, std::size_t elemSize) {
+        GLuint ssbo = 0;
+        glGenBuffers(1, &ssbo);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, count * elemSize, nullptr, GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+        return ssbo;
+    }
+
+    static int getActiveSSBOCount(GLuint program) {
+        GLint count = 0;
+        glGetProgramInterfaceiv(
+            program,
+            GL_SHADER_STORAGE_BLOCK,
+            GL_ACTIVE_RESOURCES,
+            &count
+        );
+        return count;
+    }
+
+    static void reflectSSBOBindings(GLuint program, std::unordered_map<int, SSBOTypeInfo>& out) {
+        const int count = getActiveSSBOCount(program);
+        if (count <= 0) return;
+
+        const GLenum props[1] = { GL_BUFFER_BINDING };
+
+        for (int i = 0; i < count; i++) {
+            // === Resource Name ===
+            char nameBuf[256];
+            GLsizei len = 0;
+            glGetProgramResourceName(
+                program,
+                GL_SHADER_STORAGE_BLOCK,
+                i,
+                sizeof(nameBuf),
+                &len,
+                nameBuf
+            );
+
+            // === Binding Index ===
+            GLint binding = -1;
+            glGetProgramResourceiv(
+                program,
+                GL_SHADER_STORAGE_BLOCK,
+                i, 1, props, 1, nullptr,
+                &binding
+            );
+
+            if (binding < 0) continue;
+
+            // 이름 기반으로 타입 추론 시도
+            SSBOTypeInfo tinfo;
+            auto it = out.find(binding);
+
+            if (it != out.end()) {
+                // 파서에서 이미 알아낸 타입 정보 존재
+                tinfo = it->second;
+            } else {
+                // reflection만으로는 타입 알 수 없음 → 기본 float scalar
+                tinfo = ParseSingleType("float");
+            }
+
+            // stride가 0이면 fallback
+            if (tinfo.stride <= 0) tinfo.stride = 4;
+
+            // 이미 생성된 SSBO가 있는지 검사
+            GLint currentSSBO = 0;
+            glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, binding, &currentSSBO);
+
+            if (currentSSBO == 0) {
+                GLuint ssbo = 0;
+                glGenBuffers(1, &ssbo);
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+
+                // 1024개의 요소를 담는 버퍼 생성
+                std::size_t totalBytes = static_cast<std::size_t>(1024) * tinfo.stride;
+
+                glBufferData(
+                    GL_SHADER_STORAGE_BUFFER,
+                    totalBytes,
+                    nullptr,           // 초기 데이터 없음 (zero-initialized)
+                    GL_DYNAMIC_DRAW
+                );
+
+                // 다시 바인딩 해제
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+                // binding 슬롯에 연결
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding, ssbo);
+            }
+
+            // 저장
+            out[binding] = tinfo;
+        }
+    }
+
+
+} // namespace AutoGL::detail
+
 namespace AutoGL {
 
     std::string loadFileSource(const std::string& path) {
@@ -49,50 +150,48 @@ namespace AutoGL {
         return ssbo;
     }
 
-    GLuint loadShaderProgram(const std::string& path) {
+    LoadedShaderProgram loadShaderProgram(const std::string& path) {
+        LoadedShaderProgram result;
+
         std::string full = loadFileSource(path);
         if (full.empty()) {
-            return 0;
+            return result;
         }
 
         ShaderSourceSet sections = ExtractShaderSections(full);
         if (sections.fragment.empty() && sections.compute.empty() && sections.vertex.empty()) {
             AUTOGL_LOG_ERROR("GLSLLoader",
                 " shader file must contain at least one @type");
-            return 0;
+            return result;
         }
 
         const bool hasVert    = !sections.vertex.empty();
         const bool hasFrag    = !sections.fragment.empty();
         const bool hasCompute = !sections.compute.empty();
 
-        // ----- NEW: compute + vertex/fragment 섞이면 에러 -----
+        // compute + vertex/fragment 혼합 금지
         if (hasCompute && (hasVert || hasFrag)) {
-            AUTOGL_LOG_ERROR(
-                "GLSLLoader",
-                " @type compute cannot be mixed with vertex/fragment in the same file"
-            );
-            return 0;
+            AUTOGL_LOG_ERROR("GLSLLoader",
+                "@type compute cannot be mixed with vertex/fragment");
+            return result;
         }
 
         GLuint program = glCreateProgram();
         if (!program) {
-            AUTOGL_LOG_ERROR("GLSLLoader", " glCreateProgram failed");
-            return 0;
+            AUTOGL_LOG_ERROR("GLSLLoader", "glCreateProgram failed");
+            return result;
         }
 
-        // ---------------------------
-        // CASE 1: 순수 Compute 전용 모드
-        //   - compute만 있고, vertex/fragment는 없음
-        // ---------------------------
+        // ==========================================================
+        // CASE 1: Compute-only
+        // ==========================================================
         if (hasCompute && !hasVert && !hasFrag) {
 
             GLuint comp = GL::CompileComputeShader(sections.compute);
             if (!comp) {
                 glDeleteProgram(program);
-                return 0;
+                return result;
             }
-
             glAttachShader(program, comp);
             glLinkProgram(program);
 
@@ -105,37 +204,59 @@ namespace AutoGL {
 
                 glDeleteShader(comp);
                 glDeleteProgram(program);
-                return 0;
+                return result;
             }
-
             glDeleteShader(comp);
 
-            // SSBO auto binding
+            // ============================
+            // SSBO Binding 파싱
+            // ============================
             auto bindings = ScanSsboBindings(sections.compute);
-            constexpr std::size_t defaultSize = 4096;
 
             for (auto& b : bindings) {
                 if (b.binding < 0) continue;
-                unsigned int ssbo = createEmptySSBO(defaultSize);
-                glBindBufferBase(GL_SHADER_STORAGE_BUFFER,
-                                static_cast<GLuint>(b.binding),
-                                ssbo);
+
+                // (1) 타입 파싱
+                SSBOTypeInfo tinfo = ParseSingleType(b.typeName);
+                tinfo.isArray = b.isArray;
+
+                // stride가 0이라면 fallback
+                if (tinfo.stride <= 0) {
+                    AUTOGL_LOG_WARN("GLSLLoader", "Type " + b.typeName +
+                        " produced invalid stride; fallback to float");
+                    tinfo = ParseSingleType("float");
+                }
+
+                // SSBO 크기 = 1024 * stride
+                GLuint ssbo = AutoGL::detail::createTypedSSBO(1024, tinfo.stride);
+
+                glBindBufferBase(
+                    GL_SHADER_STORAGE_BUFFER,
+                    static_cast<GLuint>(b.binding),
+                    ssbo
+                );
+
+                // 저장: binding -> 완전 타입 정보
+                result.bindingTypeInfo[b.binding] = tinfo;
             }
 
+            AutoGL::detail::reflectSSBOBindings(program, result.bindingTypeInfo);
+
             AUTOGL_LOG_INFO("GLSLLoader", "Compute-only program built");
-            return program;
+            result.program = program;
+            return result;
         }
 
-        // ---------------------------
-        // CASE 2: 그래픽 (Vertex + Fragment) 프로그램
-        // ---------------------------
+        // ==========================================================
+        // CASE 2: Graphics shader (vertex + fragment)
+        // ==========================================================
         GLuint vert = 0, frag = 0;
 
         if (hasVert) {
             vert = GL::CompileVertexShader(sections.vertex);
             if (!vert) {
                 glDeleteProgram(program);
-                return 0;
+                return result;
             }
             glAttachShader(program, vert);
         }
@@ -145,7 +266,7 @@ namespace AutoGL {
             if (!frag) {
                 if (vert) glDeleteShader(vert);
                 glDeleteProgram(program);
-                return 0;
+                return result;
             }
             glAttachShader(program, frag);
         }
@@ -162,7 +283,7 @@ namespace AutoGL {
             glDeleteProgram(program);
             if (vert) glDeleteShader(vert);
             if (frag) glDeleteShader(frag);
-            return 0;
+            return result;
         }
 
         if (vert) glDeleteShader(vert);
@@ -170,7 +291,9 @@ namespace AutoGL {
 
         AUTOGL_LOG_INFO("GLSLLoader", "Graphic program built");
 
-        return program;
+        result.program = program;
+        return result;
     }
 
+    
 } // namespace AutoGL

@@ -3,12 +3,10 @@
 
 layout(local_size_x = 1) in;
 
-// 입력 float 배열 (binding = 1)
 layout(std430, binding = 1) buffer InBuf {
     float inData[];
 };
 
-// 출력 float 배열 (binding = 2)
 layout(std430, binding = 2) buffer OutBuf {
     float outData[];
 };
@@ -17,7 +15,13 @@ void main() {
     uint gid = gl_GlobalInvocationID.x;
     if (gid >= 64) return;
 
-    float x = inData[gid];       // 입력 읽기
-    float y = x * x + 3.0 * x;   // 간단한 2차식 계산
-    outData[gid] = y;            // 출력 저장
+    // 1) 입력 버퍼를 셰이더 안에서 채움
+    float x = float(gid);
+    inData[gid] = x;
+
+    // 2) 그 값을 이용해 2차식 계산
+    float y = x * x + 3.0 * x;
+
+    // 3) 출력 버퍼에 기록
+    outData[gid] = y;
 }

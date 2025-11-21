@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <iostream>
+#include <unordered_map>
 
 namespace fs = std::filesystem;
 
@@ -188,6 +189,7 @@ namespace AutoGL::detail {
         }
     }
 
+    
     bool hasComputeStage(unsigned int program) {
         GLint numShaders = 0;
         glGetProgramiv(program, GL_ATTACHED_SHADERS, &numShaders);
@@ -213,11 +215,53 @@ namespace AutoGL::detail {
         return hasCompute && !hasNonCompute;
     }
 
-    static bool SafeDispatchCompute(GLuint program, int gx, int gy, int gz) {
+    static bool SafeDispatchCompute(GLuint program, int dummyX, int dummyY, int dummyZ) {
+        // 1) 먼저 local_size_x/y/z 파악
+        GLint computeShader = 0;
+        GLint numShaders = 0;
+        glGetProgramiv(program, GL_ATTACHED_SHADERS, &numShaders);
+
+        std::vector<GLuint> attached(numShaders);
+        glGetAttachedShaders(program, numShaders, nullptr, attached.data());
+
+        std::string computeSource;
+        for (auto s : attached) {
+            GLint type = 0;
+            glGetShaderiv(s, GL_SHADER_TYPE, &type);
+            if (type == GL_COMPUTE_SHADER) {
+                // compute shader 원본 가져오기
+                GLint len = 0;
+                glGetShaderiv(s, GL_SHADER_SOURCE_LENGTH, &len);
+                if (len > 0) {
+                    computeSource.resize(len);
+                    glGetShaderSource(s, len, nullptr, computeSource.data());
+                }
+                computeShader = s;
+                break;
+            }
+        }
+
+        // 기본값
+        int localX = 1, localY = 1, localZ = 1;
+
+        if (!computeSource.empty()) {
+            auto info = AutoGL::ParseComputeLayout(computeSource);
+            localX = info.localSizeX;
+            localY = info.localSizeY;
+            localZ = info.localSizeZ;
+        }
+
+        // 작업량 자동 계산 (기본 1024 항목 기준)
+        const int TOTAL = 1024;
+        int dispatchX = (TOTAL + localX - 1) / localX;
+        int dispatchY = (1 + localY - 1) / localY;
+        int dispatchZ = (1 + localZ - 1) / localZ;
+
+        // 기존 GL 에러 플러시
         GLenum err;
         while ((err = glGetError()) != GL_NO_ERROR) {}
 
-        glDispatchCompute(gx, gy, gz);
+        glDispatchCompute(dispatchX, dispatchY, dispatchZ);
 
         err = glGetError();
         if (err != GL_NO_ERROR) {
@@ -236,21 +280,22 @@ namespace AutoGL::detail {
         return true;
     }
 
-    void DumpAllSSBOs() {
+    static constexpr uint32_t SSBO_INIT_PATTERN = 0xCDCDCDCD;
+
+    void DumpAllSSBOs(const std::unordered_map<int, SSBOTypeInfo>& bindingInfos) {
         GLint maxBindings = 0;
         glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &maxBindings);
 
         const int RESERVED = 4;
+        const int BASE_SHOW_COUNT = 16;
         bool printedAny = false;
 
-        for (int binding = 0; binding < maxBindings; binding++)
-        {
+        for (int binding = 0; binding < maxBindings; binding++) {
+
             GLint ssbo = 0;
             glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, binding, &ssbo);
 
-            // SSBO 없음
-            if (ssbo == 0)
-            {
+            if (ssbo == 0) {
                 if (binding < RESERVED)
                     AUTOGL_LOG_INFO("SSBO", "[#" + std::to_string(binding) + "] NONE");
                 continue;
@@ -260,67 +305,117 @@ namespace AutoGL::detail {
 
             GLint size = 0;
             glGetBufferParameteriv(GL_SHADER_STORAGE_BUFFER, GL_BUFFER_SIZE, &size);
-            if (size <= 0)
-            {
+            if (size <= 0) {
                 AUTOGL_LOG_INFO("SSBO", "[#" + std::to_string(binding) + "] NONE");
                 continue;
             }
 
             void* ptr = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
-            if (!ptr)
-            {
+            if (!ptr) {
                 AUTOGL_LOG_ERROR("SSBO", "Failed to map SSBO #" + std::to_string(binding));
                 continue;
             }
 
-            int count = size / sizeof(float);
-            const float* arr = reinterpret_cast<const float*>(ptr);
+            SSBOTypeInfo info;
+            auto it = bindingInfos.find(binding);
+            if (it != bindingInfos.end())
+                info = it->second;
+            else
+                info = ParseSingleType("float");
 
-            // ----- 유효 데이터 탐색 -----
-            int printed = 0;
-            int zeroStreak = 0;
+            const uint8_t* base = reinterpret_cast<const uint8_t*>(ptr);
+            int stride = info.stride;
+            int count = size / stride;
 
-            for (int i = 0; i < count; i++)
-            {
-                float v = arr[i];
+            std::vector<int> meaningful;
+            std::vector<int> realZero;
+            std::vector<int> uninitialized;
 
-                if (v == 0.0f)
-                {
-                    zeroStreak++;
+            for (int i = 0; i < count; i++) {
+                const uint8_t* p = base + i * stride;
 
-                    // 연속된 16개의 0이면 더 이상 유효 데이터 없음
-                    if (zeroStreak >= 16)
-                        break;
+                if (info.isScalar()) {
+                    uint32_t v = *reinterpret_cast<const uint32_t*>(p);
 
-                    continue;
+                    if (v == SSBO_INIT_PATTERN) {
+                        uninitialized.push_back(i);
+                    }
+                    else if (v == 0) {
+                        realZero.push_back(i);
+                    }
+                    else {
+                        meaningful.push_back(i);
+                    }
                 }
+                else {
+                    // 구조체나 벡터의 경우 최소 한 요소만 체크
+                    uint32_t first = *reinterpret_cast<const uint32_t*>(p);
+                    if (first == SSBO_INIT_PATTERN) {
+                        uninitialized.push_back(i);
+                    }
+                    else {
+                        bool allZero = true;
+                        for (int b = 0; b < stride; b++) {
+                            if (p[b] != 0) { allZero = false; break; }
+                        }
+                        if (allZero) realZero.push_back(i);
+                        else meaningful.push_back(i);
+                    }
+                }
+            }
 
-                // 값이 있는 경우
-                zeroStreak = 0;
-                printed++;
-                printedAny = true;
+            // 모든 값이 INIT 패턴
+            if (!meaningful.empty() || !realZero.empty())
+            {
+                int total = meaningful.size() + realZero.size();
+                int limit = std::min<int>(BASE_SHOW_COUNT, total);
 
                 AUTOGL_LOG_INFO(
                     "SSBO",
-                    "[#" + std::to_string(binding) +
-                    "][" + std::to_string(i) +
-                    "] = " + std::to_string(v)
+                    "[#" + std::to_string(binding) + "] showing "
+                        + std::to_string(limit)
+                        + " / " + std::to_string(total)
+                        + " items"
                 );
+
+                auto printScalar = [&](int idx, const char* tag) {
+                    const uint8_t* p = base + idx * stride;
+                    float v = *reinterpret_cast<const float*>(p);
+                    AUTOGL_LOG_INFO("SSBO",
+                        "[" + std::to_string(idx) + "] " + tag + " = " + std::to_string(v));
+                };
+
+                int printed = 0;
+
+                // 1) meaningful 값 출력
+                for (int idx : meaningful) {
+                    printScalar(idx, "VAL");
+                    if (++printed >= limit) break;
+                }
+                if (printed < limit) {
+                    // 2) realZero 값 출력
+                    for (int idx : realZero) {
+                        printScalar(idx, "ZERO");
+                        if (++printed >= limit) break;
+                    }
+                }
+
+                if (meaningful.size() + realZero.size() > BASE_SHOW_COUNT) {
+                    AUTOGL_LOG_INFO("SSBO", "... more meaningful or zero values exist");
+                }
+
+                printedAny = true;
+            }
+            else {
+                AUTOGL_LOG_INFO("SSBO",
+                    "[#" + std::to_string(binding) + "] UNINITIALIZED (all pattern 0xCDCDCDCD)");
             }
 
             glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
-
-            // 이 SSBO에 출력된 값이 하나도 없었다면 NONE
-            if (printed == 0)
-            {
-                AUTOGL_LOG_INFO("SSBO", "[#" + std::to_string(binding) + "] NONE");
-            }
         }
 
         if (!printedAny)
-        {
             AUTOGL_LOG_INFO("SSBO", "No SSBO found");
-        }
     }
 
 } // AutoGL::detail
@@ -405,12 +500,12 @@ namespace AutoGL {
     }
 
     unsigned int EngineGLBackend::tryLoadProgram(const std::string& path) {
-        GLuint p = loadShaderProgram(path);
-        if (p == 0) {
+        LoadedShaderProgram ls = loadShaderProgram(path);
+        if (ls.program == 0) {
             AUTOGL_LOG_ERROR("EngineGL", "shader compile failed, keep old program");
-            return 0;
-        }
-        return p;
+            return 0;  
+        } 
+        return ls.program;
     }
 
     void EngineGLBackend::swapProgram(unsigned int newProgram) {
@@ -430,22 +525,25 @@ namespace AutoGL {
     }
 
     bool EngineGLBackend::runShaderFile(const std::string& path) {
-        GLuint program = loadShaderProgram(path);
-        if (!program) {
-            return false;
-        }
+        LoadedShaderProgram ls = loadShaderProgram(path);
+        GLuint program = ls.program;
 
+        if (program == 0)
+            return false;
+
+        isComputeMode_ = AutoGL::detail::hasComputeStage(program);
         glUseProgram(program);
 
-        // 이 프로그램이 compute-only 인지 확인
         const bool isCompute = AutoGL::detail::hasComputeStage(program);
 
         state_.startTime     = glfwGetTime();
         state_.prevFrameTime = state_.startTime;
         state_.frameCount    = 0;
 
+        // ========================================================
+        // Compute 전용 모드
+        // ========================================================
         if (isCompute) {
-            // ===== Compute-only: 딱 한 번만 실행하고 SSBO dump 후 종료 =====
             AutoGL::detail::setBuiltinUniforms(program, state_);
 
             double t0 = glfwGetTime();
@@ -459,13 +557,17 @@ namespace AutoGL {
                 return false;
             }
 
-            AutoGL::detail::DumpAllSSBOs();
+            // 새로운 타입 기반 SSBO 덤프
+            AutoGL::detail::DumpAllSSBOs(ls.bindingTypeInfo);
 
             glDeleteProgram(program);
             return true;
         }
-        else {
-            // ===== 그래픽 전용: 한 번만 화면에 그려주고 종료 (단순 모드) =====
+
+        // ========================================================
+        // Graphics 모드
+        // ========================================================
+        {
             int w, h;
             glfwGetFramebufferSize(state_.window, &w, &h);
             glViewport(0, 0, w, h);
@@ -479,7 +581,6 @@ namespace AutoGL {
             return true;
         }
     }
-
 
 
     void EngineGLBackend::mainLoop(const std::string& shaderPath) {

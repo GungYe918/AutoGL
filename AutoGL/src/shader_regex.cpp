@@ -49,17 +49,45 @@ namespace AutoGL {
     std::vector<SsboBinding> ScanSsboBindings(const std::string& source) {
         std::vector<SsboBinding> result;
 
-        std::regex r("layout\\s*\\([^\\)]*binding\\s*=\\s*(\\d+)\\s*[^\\)]*\\)\\s*buffer");
-        std::smatch m;
+        // ---- SSBO block ----
+        std::regex blockRegex(
+            R"(layout\s*\(\s*std430\s*,\s*binding\s*=\s*(\d+)\s*\)\s*buffer\s+(\w+)\s*\{([\s\S]*?)\};)"
+        );
 
-        std::string s = source;
-        while (std::regex_search(s, m, r)) {
-            int b = std::stoi(m[1].str());
-            result.push_back(SsboBinding{b});
-            s = m.suffix();
+        // ---- variable parser inside block ----
+        std::regex varRegex(
+            R"(([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(\[\s*\d*\s*\])?\s*;)"
+        );
+
+        auto it  = std::sregex_iterator(source.begin(), source.end(), blockRegex);
+        auto end = std::sregex_iterator();
+
+        for (; it != end; ++it) {
+            std::smatch m = *it;
+
+            int binding          = std::stoi(m[1].str());
+            std::string block    = m[3].str();
+
+            // Parse variables inside block
+            auto vit  = std::sregex_iterator(block.begin(), block.end(), varRegex);
+            auto vend = std::sregex_iterator();
+
+            for (; vit != vend; ++vit) {
+                std::smatch vm = *vit;
+
+                SsboBinding b;
+                b.binding  = binding;
+                b.typeName = vm[1].str();
+                b.varName  = vm[2].str();
+                b.isArray  = vm[3].matched;
+
+                result.push_back(b);
+            }
         }
+
         return result;
     }
+
 
     ComputeLayoutInfo ParseComputeLayout(const std::string& source) {
         ComputeLayoutInfo info{1, 1, 1};
