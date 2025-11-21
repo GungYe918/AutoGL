@@ -1,12 +1,26 @@
-# AutoGL cmake
+# AutoGL cmake (root cmake)
 cmake_minimum_required(VERSION 3.20)
 project(AutoGL LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# ------------------------------------------------------------------
+# ccache 자동 감지
+# ------------------------------------------------------------------
+find_program(CCACHE_PROGRAM ccache)
+
+if (CCACHE_PROGRAM)
+    message(STATUS "ccache found: ${CCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER   ${CCACHE_PROGRAM})
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+else()
+    message(STATUS "ccache not found → normal build")
+endif()
 
 # ----------------------------------------
-# OpenGL + Threads (AutoGL 단독 빌드 대비)
+# OpenGL + Threads
 # ----------------------------------------
 find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
@@ -42,6 +56,7 @@ set(AUTOGL_PUBLIC_HEADERS
 # ----------------------------------------
 # GUI Modules
 # ----------------------------------------
+# webview FetchContent는 gui/CMakeLists에서만 처리하도록 유지
 add_subdirectory(gui)
 
 # ----------------------------------------
@@ -117,24 +132,47 @@ add_executable(autogl
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
 )
 
+add_executable(autogl_gui
+    gui/main.cpp
+)
+
 target_include_directories(autogl
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+# 엔진 테스트용 실행 파일: AutoGL만 링크
 target_link_libraries(autogl
-    AutoGL
-    AutoGL_GUI
-    glfw
-    OpenGL::GL
-    Threads::Threads
+    PRIVATE
+        AutoGL
+        glfw
+        OpenGL::GL
+        Threads::Threads
+)
+
+# GUI 실행 파일: GUI + 엔진 + 의존성 전부 링크
+target_link_libraries(autogl_gui
+    PRIVATE
+        AutoGL_GUI      # <- GuiApp, WebViewLayer, Panel들
+        AutoGL          # <- 엔진
+        glfw
+        OpenGL::GL
+        Threads::Threads
 )
 
 if(APPLE)
     target_link_libraries(autogl
-        "-framework Cocoa"
-        "-framework OpenGL"
-        "-framework IOKit"
-        "-framework CoreVideo"
+        PRIVATE
+            "-framework Cocoa"
+            "-framework OpenGL"
+            "-framework IOKit"
+            "-framework CoreVideo"
+    )
+    target_link_libraries(autogl_gui
+        PRIVATE
+            "-framework Cocoa"
+            "-framework OpenGL"
+            "-framework IOKit"
+            "-framework CoreVideo"
     )
 endif()

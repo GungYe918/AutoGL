@@ -6,8 +6,8 @@
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/include/**",
                 "${workspaceFolder}/AutoGL/include/**",
-                "${workspaceFolder}/AutoGL/gui/imgui/**",
-                "${workspaceFolder}/glad/include/**"
+                "${workspaceFolder}/glad/include/**",
+                "${workspaceFolder}/AutoGL/build/_deps/webview-src/**"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/clang",
