@@ -1,0 +1,3 @@
+[submodule "AutoGL/gui/imgui"]
+	path = AutoGL/gui/imgui
+	url = https://github.com/ocornut/imgui

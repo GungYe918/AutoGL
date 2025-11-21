@@ -40,6 +40,11 @@ set(AUTOGL_PUBLIC_HEADERS
 )
 
 # ----------------------------------------
+# GUI Modules
+# ----------------------------------------
+add_subdirectory(gui)
+
+# ----------------------------------------
 # GLAD (AutoGL 내부 전용)
 # ----------------------------------------
 set(AUTOGL_GLAD_INCLUDE
@@ -119,6 +124,7 @@ target_include_directories(autogl
 
 target_link_libraries(autogl
     AutoGL
+    AutoGL_GUI
     glfw
     OpenGL::GL
     Threads::Threads

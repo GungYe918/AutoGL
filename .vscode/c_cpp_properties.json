@@ -5,6 +5,8 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/include/**",
+                "${workspaceFolder}/AutoGL/include/**",
+                "${workspaceFolder}/AutoGL/gui/imgui/**",
                 "${workspaceFolder}/glad/include/**"
             ],
             "defines": [],
