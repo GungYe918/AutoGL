@@ -1,59 +1,192 @@
 <!DOCTYPE html>
 <html>
 <head>
+<script src="./bundle.js" defer></script>
 <meta charset="UTF-8" />
-<title>AutoGL IDE</title>
+<title>AutoGL Web IDE</title>
+
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+
 <style>
+/* ==== VARIABLES === */
+:root {
+    --bg-dark: #1e1e1e;
+    --bg-sidebar: #252526;
+    --bg-topbar: #333333;
+    --text-color: #dcdcdc;
+    --accent: #0e639c;
+}
+
 body {
     margin: 0;
-    font-family: sans-serif;
-    background: #1e1e1e;
-    color: #ddd;
+    font-family: "Segoe UI", sans-serif;
+    background: var(--bg-dark);
+    color: var(--text-color);
+    overflow: hidden;
 }
 
-#topbar {
-    height: 40px;
-    background: #333333;
-    padding: 10px;
-    display: flex;
-    align-items: center;
-}
-
-#sidebar {
-    width: 200px;
-    background: #252526;
-    position:absolute;
-    top: 40px;
+/* ==== ICON BAR ==== */
+#iconbar {
+    position: absolute;
+    top: 0;
     bottom: 0;
     left: 0;
-    padding: 10px;
+    width: 50px;
+    background: #2d2d2d;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 12px;
+    border-right: 1px solid #000;
 }
 
-#editor {
-    position:absolute;
-    left: 200px;
-    right: 0;
-    top: 40px;
+#iconbar .icon-btn {
+    width: 40px;
+    height: 40px;
+    margin: 6px 0;
+    color: #ccc;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+
+    transition: background 0.2s, transform 0.15s;
+}
+
+#iconbar .icon-btn:hover {
+    background: #3a3d41;
+    transform: scale(1.1);
+}
+
+#iconbar .icon-btn.active {
+    background: var(--accent);
+    color: white;
+}
+
+/* ==== EXPLORER SIDEBAR ==== */
+#sidebar {
+    position: absolute;
+    top: 0;
     bottom: 0;
+    left: 50px;
+    width: 260px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid #000;
+    overflow-y: auto;
+    padding: 10px;
+    transform: translateX(0);
+    transition: transform 0.25s ease-out;
+}
+
+#sidebar.hidden {
+    transform: translateX(-270px);
+}
+
+#sidebar h3 {
+    margin: 4px 0 10px;
+    font-size: 13px;
+    color: #ddd;
+    text-transform: uppercase;
+}
+
+/* ==== EXPLORER TREE ==== */
+.tree-item {
+    padding: 4px 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 4px;
+    user-select: none;
+}
+.tree-item:hover {
+    background: #3a3d41;
+}
+
+.tree-folder-children {
+    margin-left: 18px;
+    display: none;
+}
+
+.tree-folder.open > .tree-folder-children {
+    display: block;
+}
+
+.tree-item span.material-icons {
+    font-size: 18px;
+}
+
+/* ==== EDITOR AREA ==== */
+#editor {
+    position: absolute;
+    top: 0;
+    left: 310px; /* 50px + 260px */
+    right: 0;
+    bottom: 0;
+    overflow: auto;
     padding: 20px;
+    transition: left 0.25s ease-out;
+}
+
+#editor.sidebar-hidden {
+    left: 50px;
 }
 </style>
 </head>
 
 <body>
-    <div id="topbar">
-        <b>AutoGL Web IDE</b>
-    </div>
 
-    <div id="sidebar">
-        <p>File Explorer (TODO)</p>
-        <button onclick="AutoGL.ping()">Ping C++</button>
+<!-- Icon bar -->
+<div id="iconbar">
+    <div class="icon-btn active" id="btn-explorer">
+        <span class="material-icons">folder</span>
     </div>
+    <div class="icon-btn">
+        <span class="material-icons">search</span>
+    </div>
+    <div class="icon-btn">
+        <span class="material-icons">settings</span>
+    </div>
+</div>
 
-    <div id="editor">
-        <h3>Editor Area</h3>
-        <p>This will contain Monaco Editor later.</p>
+<!-- File Explorer Sidebar -->
+<div id="sidebar">
+    <h3>Explorer</h3>
+    <div id="file-tree">
+        <!-- Will be filled by JS -->
     </div>
+</div>
+
+<!-- Editor area -->
+<div id="editor">
+    <h2>Welcome</h2>
+    <p>Select a file from the explorer.</p>
+</div>
 
 </body>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const sidebar = window.AutoGL_LoadedModules["panels/sidebar.js"];
+    if (sidebar && sidebar.SidebarPanel) {
+        // 테스트용 파일 트리
+        const tree = {
+            src: {
+                "main.cpp": true,
+                "App": {
+                    "Editor.cpp": true,
+                    "Editor.hpp": true
+                }
+            },
+            assets: {
+                "logo.png": true
+            }
+        };
+        sidebar.SidebarPanel.renderFileTree(tree);
+    }
+});
+</script>
+
+
 </html>
