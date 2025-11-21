@@ -5,6 +5,7 @@
 #include <GLFW/glfw3.h>
 
 #include "glsl_loader.hpp"
+#include "shader_regex.hpp"
 #include <AutoGL/Log.hpp>
 
 #include <filesystem>
@@ -195,14 +196,21 @@ namespace AutoGL::detail {
         std::vector<GLuint> attached(static_cast<std::size_t>(numShaders));
         glGetAttachedShaders(program, numShaders, nullptr, attached.data());
 
+        bool hasCompute   = false;
+        bool hasNonCompute = false;
+
         for (GLuint s : attached) {
             GLint type = 0;
             glGetShaderiv(s, GL_SHADER_TYPE, &type);
             if (type == GL_COMPUTE_SHADER) {
-                return true;
+                hasCompute = true;
+            } else {
+                hasNonCompute = true;
             }
         }
-        return false;
+
+        // “compute-only 프로그램인지” 여부 반환
+        return hasCompute && !hasNonCompute;
     }
 
     static bool SafeDispatchCompute(GLuint program, int gx, int gy, int gz) {
@@ -226,6 +234,93 @@ namespace AutoGL::detail {
         }
 
         return true;
+    }
+
+    void DumpAllSSBOs() {
+        GLint maxBindings = 0;
+        glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &maxBindings);
+
+        const int RESERVED = 4;
+        bool printedAny = false;
+
+        for (int binding = 0; binding < maxBindings; binding++)
+        {
+            GLint ssbo = 0;
+            glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, binding, &ssbo);
+
+            // SSBO 없음
+            if (ssbo == 0)
+            {
+                if (binding < RESERVED)
+                    AUTOGL_LOG_INFO("SSBO", "[#" + std::to_string(binding) + "] NONE");
+                continue;
+            }
+
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+
+            GLint size = 0;
+            glGetBufferParameteriv(GL_SHADER_STORAGE_BUFFER, GL_BUFFER_SIZE, &size);
+            if (size <= 0)
+            {
+                AUTOGL_LOG_INFO("SSBO", "[#" + std::to_string(binding) + "] NONE");
+                continue;
+            }
+
+            void* ptr = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
+            if (!ptr)
+            {
+                AUTOGL_LOG_ERROR("SSBO", "Failed to map SSBO #" + std::to_string(binding));
+                continue;
+            }
+
+            int count = size / sizeof(float);
+            const float* arr = reinterpret_cast<const float*>(ptr);
+
+            // ----- 유효 데이터 탐색 -----
+            int printed = 0;
+            int zeroStreak = 0;
+
+            for (int i = 0; i < count; i++)
+            {
+                float v = arr[i];
+
+                if (v == 0.0f)
+                {
+                    zeroStreak++;
+
+                    // 연속된 16개의 0이면 더 이상 유효 데이터 없음
+                    if (zeroStreak >= 16)
+                        break;
+
+                    continue;
+                }
+
+                // 값이 있는 경우
+                zeroStreak = 0;
+                printed++;
+                printedAny = true;
+
+                AUTOGL_LOG_INFO(
+                    "SSBO",
+                    "[#" + std::to_string(binding) +
+                    "][" + std::to_string(i) +
+                    "] = " + std::to_string(v)
+                );
+            }
+
+            glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+            // 이 SSBO에 출력된 값이 하나도 없었다면 NONE
+            if (printed == 0)
+            {
+                AUTOGL_LOG_INFO("SSBO", "[#" + std::to_string(binding) + "] NONE");
+            }
+        }
+
+        if (!printedAny)
+        {
+            AUTOGL_LOG_INFO("SSBO", "No SSBO found");
+        }
     }
 
 } // AutoGL::detail
@@ -342,51 +437,78 @@ namespace AutoGL {
 
         glUseProgram(program);
 
-        const bool compute = detail::hasComputeStage(program);
+        // 이 프로그램이 compute-only 인지 확인
+        const bool isCompute = AutoGL::detail::hasComputeStage(program);
 
         state_.startTime     = glfwGetTime();
         state_.prevFrameTime = state_.startTime;
         state_.frameCount    = 0;
 
-        while (!glfwWindowShouldClose(state_.window)) {
-            glUseProgram(program);
-            detail::setBuiltinUniforms(program, state_);
+        if (isCompute) {
+            // ===== Compute-only: 딱 한 번만 실행하고 SSBO dump 후 종료 =====
+            AutoGL::detail::setBuiltinUniforms(program, state_);
 
-            if (compute) {
-                double t0 = glfwGetTime();
-                bool ok = detail::SafeDispatchCompute(program, 8, 8, 1);
-                double t1 = glfwGetTime();
+            double t0 = glfwGetTime();
+            bool ok   = AutoGL::detail::SafeDispatchCompute(program, 1, 1, 1);
+            double t1 = glfwGetTime();
 
-                if (!ok || (t1 - t0) > 0.5) {
-                    AUTOGL_LOG_FATAL("Compute", "Compute hang detected. Shutting down.");
-                    glfwSetWindowShouldClose(state_.window, GLFW_TRUE);
-                    break;
-                }
-            } else {
-                int w, h;
-                glfwGetFramebufferSize(state_.window, &w, &h);
-                glViewport(0, 0, w, h);
-                glClear(GL_COLOR_BUFFER_BIT);
-
-                glBindVertexArray(state_.quadVAO);
-                glDrawArrays(GL_TRIANGLES, 0, 6);
+            if (!ok || (t1 - t0) > 0.5) {
+                AUTOGL_LOG_FATAL("Compute",
+                    "Compute dispatch failed or took too long.");
+                glDeleteProgram(program);
+                return false;
             }
 
-            glfwSwapBuffers(state_.window);
-            glfwPollEvents();
+            AutoGL::detail::DumpAllSSBOs();
 
-            GLenum err;
-            while ((err = glGetError()) != GL_NO_ERROR) {
-                AUTOGL_LOG_ERROR("EngineGL",
-                    "GL error in runShaderFile loop code " + std::to_string(err));
-            }
+            glDeleteProgram(program);
+            return true;
         }
+        else {
+            // ===== 그래픽 전용: 한 번만 화면에 그려주고 종료 (단순 모드) =====
+            int w, h;
+            glfwGetFramebufferSize(state_.window, &w, &h);
+            glViewport(0, 0, w, h);
 
-        glDeleteProgram(program);
-        return true;
+            glClear(GL_COLOR_BUFFER_BIT);
+            glBindVertexArray(state_.quadVAO);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            glfwSwapBuffers(state_.window);
+
+            glDeleteProgram(program);
+            return true;
+        }
     }
 
+
+
     void EngineGLBackend::mainLoop(const std::string& shaderPath) {
+        // 먼저 파일을 읽어서 어떤 타입인지 판단
+        std::string fullSource = loadFileSource(shaderPath);
+        ShaderSourceSet sections = ExtractShaderSections(fullSource);
+
+        bool hasCompute = !sections.compute.empty();
+        bool hasVert    = !sections.vertex.empty();
+        bool hasFrag    = !sections.fragment.empty();
+
+        // compute + vertex/fragment 섞이면 금지 (로더와 일관성)
+        if (hasCompute && (hasVert || hasFrag)) {
+            AUTOGL_LOG_ERROR(
+                "EngineGL",
+                "@type compute cannot be mixed with vertex/fragment in the same file"
+            );
+            return;
+        }
+
+        // ===== CASE 1: compute-only 파일이면, runShaderFile 한 번 실행 후 종료 =====
+        if (hasCompute) {
+            AUTOGL_LOG_INFO("EngineGL",
+                "Compute-only shader: single dispatch then exit");
+            runShaderFile(shaderPath);
+            return;
+        }
+
+        // ===== CASE 2: 그래픽 전용 파일 (vertex/fragment만 있는 경우) =====
         fs::file_time_type lastTime = fs::last_write_time(shaderPath);
 
         GLuint initial = tryLoadProgram(shaderPath);
@@ -395,8 +517,6 @@ namespace AutoGL {
         state_.startTime     = glfwGetTime();
         state_.prevFrameTime = state_.startTime;
         state_.frameCount    = 0;
-
-        bool hasCompute = detail::hasComputeStage(currentProgram_);
 
         while (!glfwWindowShouldClose(state_.window)) {
             // hot reload
@@ -408,7 +528,6 @@ namespace AutoGL {
                 GLuint np = tryLoadProgram(shaderPath);
                 if (np != 0) {
                     swapProgram(np);
-                    hasCompute = detail::hasComputeStage(np);
                     state_.startTime     = glfwGetTime();
                     state_.prevFrameTime = state_.startTime;
                     state_.frameCount    = 0;
@@ -421,24 +540,12 @@ namespace AutoGL {
                 glUseProgram(currentProgram_);
                 detail::setBuiltinUniforms(currentProgram_, state_);
 
-                if (hasCompute) {
-                    double t0 = glfwGetTime();
-                    bool ok = detail::SafeDispatchCompute(currentProgram_, 8, 8, 1);
-                    double t1 = glfwGetTime();
+                int w, h;
+                glfwGetFramebufferSize(state_.window, &w, &h);
+                glViewport(0, 0, w, h);
 
-                    if (!ok || (t1 - t0) > 0.5) {
-                        AUTOGL_LOG_FATAL("Compute", "Compute hang detected. Shutting down.");
-                        glfwSetWindowShouldClose(state_.window, GLFW_TRUE);
-                        break;
-                    }
-                } else {
-                    int w, h;
-                    glfwGetFramebufferSize(state_.window, &w, &h);
-                    glViewport(0, 0, w, h);
-
-                    glBindVertexArray(state_.quadVAO);
-                    glDrawArrays(GL_TRIANGLES, 0, 6);
-                }
+                glBindVertexArray(state_.quadVAO);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
             }
 
             glfwSwapBuffers(state_.window);

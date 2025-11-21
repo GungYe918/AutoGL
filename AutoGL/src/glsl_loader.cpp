@@ -56,48 +56,99 @@ namespace AutoGL {
         }
 
         ShaderSourceSet sections = ExtractShaderSections(full);
-        if (sections.fragment.empty() && sections.compute.empty()) {
+        if (sections.fragment.empty() && sections.compute.empty() && sections.vertex.empty()) {
             AUTOGL_LOG_ERROR("GLSLLoader",
-                             " fragment or compute shader is required");
+                " shader file must contain at least one @type");
             return 0;
         }
 
-        GLuint vert = 0, frag = 0, comp = 0;
+        const bool hasVert    = !sections.vertex.empty();
+        const bool hasFrag    = !sections.fragment.empty();
+        const bool hasCompute = !sections.compute.empty();
 
-        if (!sections.vertex.empty()) {
-            vert = GL::CompileVertexShader(sections.vertex);
-            if (!vert) {
-                return 0;
-            }
-        }
-        if (!sections.fragment.empty()) {
-            frag = GL::CompileFragmentShader(sections.fragment);
-            if (!frag) {
-                if (vert) glDeleteShader(vert);
-                return 0;
-            }
-        }
-        if (!sections.compute.empty()) {
-            comp = GL::CompileComputeShader(sections.compute);
-            if (!comp) {
-                if (vert) glDeleteShader(vert);
-                if (frag) glDeleteShader(frag);
-                return 0;
-            }
+        // ----- NEW: compute + vertex/fragment 섞이면 에러 -----
+        if (hasCompute && (hasVert || hasFrag)) {
+            AUTOGL_LOG_ERROR(
+                "GLSLLoader",
+                " @type compute cannot be mixed with vertex/fragment in the same file"
+            );
+            return 0;
         }
 
         GLuint program = glCreateProgram();
         if (!program) {
             AUTOGL_LOG_ERROR("GLSLLoader", " glCreateProgram failed");
-            if (vert) glDeleteShader(vert);
-            if (frag) glDeleteShader(frag);
-            if (comp) glDeleteShader(comp);
             return 0;
         }
 
-        if (vert) glAttachShader(program, vert);
-        if (frag) glAttachShader(program, frag);
-        if (comp) glAttachShader(program, comp);
+        // ---------------------------
+        // CASE 1: 순수 Compute 전용 모드
+        //   - compute만 있고, vertex/fragment는 없음
+        // ---------------------------
+        if (hasCompute && !hasVert && !hasFrag) {
+
+            GLuint comp = GL::CompileComputeShader(sections.compute);
+            if (!comp) {
+                glDeleteProgram(program);
+                return 0;
+            }
+
+            glAttachShader(program, comp);
+            glLinkProgram(program);
+
+            GLint ok = 0;
+            glGetProgramiv(program, GL_LINK_STATUS, &ok);
+            if (!ok) {
+                char log[2048];
+                glGetProgramInfoLog(program, 2048, nullptr, log);
+                AUTOGL_LOG_ERROR("ComputeLink", log);
+
+                glDeleteShader(comp);
+                glDeleteProgram(program);
+                return 0;
+            }
+
+            glDeleteShader(comp);
+
+            // SSBO auto binding
+            auto bindings = ScanSsboBindings(sections.compute);
+            constexpr std::size_t defaultSize = 4096;
+
+            for (auto& b : bindings) {
+                if (b.binding < 0) continue;
+                unsigned int ssbo = createEmptySSBO(defaultSize);
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER,
+                                static_cast<GLuint>(b.binding),
+                                ssbo);
+            }
+
+            AUTOGL_LOG_INFO("GLSLLoader", "Compute-only program built");
+            return program;
+        }
+
+        // ---------------------------
+        // CASE 2: 그래픽 (Vertex + Fragment) 프로그램
+        // ---------------------------
+        GLuint vert = 0, frag = 0;
+
+        if (hasVert) {
+            vert = GL::CompileVertexShader(sections.vertex);
+            if (!vert) {
+                glDeleteProgram(program);
+                return 0;
+            }
+            glAttachShader(program, vert);
+        }
+
+        if (hasFrag) {
+            frag = GL::CompileFragmentShader(sections.fragment);
+            if (!frag) {
+                if (vert) glDeleteShader(vert);
+                glDeleteProgram(program);
+                return 0;
+            }
+            glAttachShader(program, frag);
+        }
 
         glLinkProgram(program);
 
@@ -106,41 +157,18 @@ namespace AutoGL {
         if (!ok) {
             char log[2048];
             glGetProgramInfoLog(program, 2048, nullptr, log);
-            AUTOGL_LOG_ERROR("GLSLLoader",
-                             std::string(" program link failed: ") + log);
+            AUTOGL_LOG_ERROR("GraphicLink", log);
 
             glDeleteProgram(program);
             if (vert) glDeleteShader(vert);
             if (frag) glDeleteShader(frag);
-            if (comp) glDeleteShader(comp);
             return 0;
         }
 
         if (vert) glDeleteShader(vert);
         if (frag) glDeleteShader(frag);
-        if (comp) glDeleteShader(comp);
 
-        // compute 세션이 있을 경우 SSBO auto binding
-        if (!sections.compute.empty()) {
-            auto bindings = ScanSsboBindings(sections.compute);
-
-            // 기본 버퍼 크기: 4 KB. 나중에 compute layout 기반으로 늘릴 수 있음.
-            constexpr std::size_t defaultSize = 4096;
-
-            for (const auto& b : bindings) {
-                if (b.binding < 0) continue;
-
-                unsigned int ssbo = createEmptySSBO(defaultSize);
-                glBindBufferBase(GL_SHADER_STORAGE_BUFFER,
-                                 static_cast<GLuint>(b.binding),
-                                 ssbo);
-
-                AUTOGL_LOG_INFO("GLSLLoader",
-                    "SSBO created for binding "
-                    + std::to_string(b.binding)
-                    + " size " + std::to_string(defaultSize));
-            }
-        }
+        AUTOGL_LOG_INFO("GLSLLoader", "Graphic program built");
 
         return program;
     }
