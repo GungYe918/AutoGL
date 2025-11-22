@@ -91,6 +91,8 @@ export class TreeView {
                 console.warn("[TreeView] lint trigger failed:", e);
             }
         }
+        
+        window.__currentOpenedFile = data.path;
     }
 
 

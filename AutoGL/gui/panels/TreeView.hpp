@@ -117,6 +117,22 @@ public:
                 return safe.dump();
             }
         }
+        else if(action == "save_file") {
+            std::string file = req["file"];
+            std::string content = req["content"];
+
+            std::filesystem::path fullPath =
+                std::filesystem::current_path() / file;
+
+            std::ofstream ofs(fullPath);
+            ofs << content;
+            ofs.close();
+
+            json resp;
+            resp["action"] = "saved";
+            resp["file"] = file;
+            return resp.dump();
+        }
 
 
         resp["error"] = "unknown action";
