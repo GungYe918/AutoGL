@@ -1,3 +1,4 @@
+// panels/Panel.hpp
 #pragma once
 #include <string>
 

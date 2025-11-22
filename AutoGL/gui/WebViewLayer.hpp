@@ -1,3 +1,4 @@
+// WebViewLayer.hpp
 #pragma once
 #include "panels/PanelManager.hpp"
 

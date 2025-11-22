@@ -2,6 +2,8 @@
 <html>
 <head>
 <script src="./bundle.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js" defer></script>
 <meta charset="UTF-8" />
 <title>AutoGL Web IDE</title>
 
@@ -13,8 +15,12 @@
     --bg-sidebar: #252526;
     --text-color: #dcdcdc;
     --accent: #0e639c;
+
+    /* 사이드바 너비 (토글 시 JS에서 변경) */
+    --sidebar-width: 260px;
 }
 
+/* ===== 전체 레이아웃 ===== */
 body {
     margin: 0;
     font-family: "Segoe UI", sans-serif;
@@ -23,7 +29,7 @@ body {
     overflow: hidden;
 }
 
-/* ==== ICON BAR ==== */
+/* ===== 왼쪽 아이콘 바 ===== */
 #iconbar {
     position: absolute;
     top: 0;
@@ -61,23 +67,27 @@ body {
     color: white;
 }
 
-/* ==== SIDEBAR ==== */
+/* ===== 사이드바 ===== */
 #sidebar {
+    overflow-x: auto;
+    overflow-y: auto;
     position: absolute;
     top: 0;
     bottom: 0;
     left: 50px;
-    width: 260px;
+    width: var(--sidebar-width);
     background: var(--bg-sidebar);
     border-right: 1px solid #000;
     overflow-y: auto;
     padding: 10px;
-    transition: width 0.25s ease-out, padding 0.25s ease-out;
+    transition: width 0.25s ease-out;
+    /*-webkit-overflow-scrolling: touch;*/
 }
 
 #sidebar.hidden {
-    width: 0;
+    width: 0 !important;
     padding: 0;
+    overflow: hidden;
     border-right: none;
 }
 
@@ -88,7 +98,9 @@ body {
     color: #ddd;
 }
 
-/* ==== TREE VIEW ==== */
+/* ===== 트리뷰 ===== */
+
+/* 노드 한 줄 */
 .tree-node {
     display: flex;
     align-items: center;
@@ -96,50 +108,75 @@ body {
     cursor: pointer;
     border-radius: 3px;
     user-select: none;
+    white-space: nowrap;             /* 줄바꿈 방지 */
+    overflow: hidden;                /* 넘치는 텍스트 숨김 */
+    text-overflow: ellipsis;         /* ... 처리 */
+    width: max-content;
 }
 
 .tree-node:hover {
     background: #3b3e40;
+    will-change: background;
 }
 
 .tree-node .material-icons {
     font-size: 18px;
 }
 
-/* Arrow + folder/file layout */
+/* 파일/폴더 앞의 아이콘 */
 .tree-arrow {
     width: 18px;
     text-align: center;
     color: #aaa;
 }
 
+/* 자식 폴더 */
 .tree-children {
     margin-left: 18px;
-    overflow: hidden;
-    max-height: 0;
-    transition: max-height 0.25s ease-out;
+    display: none;
 }
 
 .tree-folder.open > .tree-children {
-    max-height: 800px; /* enough to show children */
+    display: block;
 }
 
-/* ==== EDITOR AREA ==== */
-#editor {
+/* 전체 트리 영역 */
+#file-tree {
+    padding-right: 8px;
+    min-width: 130%;
+    display: block;
+    overscroll-behavior: contain;
+}
+
+/* ===== 에디터 영역 ===== */
+
+/* wrapper가 실제 에디터 컨테이너 */
+#editor-wrapper {
     position: absolute;
     top: 0;
-    left: 310px;
+    left: calc(50px + var(--sidebar-width));  /* 사이드바 너비 반영 */
     right: 0;
     bottom: 0;
-    overflow: auto;
-    padding: 20px;
+    background: #1e1e1e;
+    overflow: hidden;
     transition: left 0.25s ease-out;
 }
 
-#editor.sidebar-hidden {
+/* 상단 여백 (VSCode처럼 약간 띄움) */
+#editor {
+    position: absolute;
+    top: 100px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+}
+
+#editor-wrapper.sidebar-hidden {
     left: 50px;
 }
 </style>
+
 </head>
 
 <body>
@@ -164,12 +201,16 @@ body {
 </div>
 
 <!-- Editor -->
-<div id="editor">
-    <h2>Welcome</h2>
-    <p>Select a file.</p>
+<!-- Editor wrapper -->
+<div id="editor-wrapper">
+    <div id="editor"></div>
 </div>
 
+
 <script>
+window.__monacoReady = false;
+window.__pendingFileLoads = [];
+
 document.addEventListener("DOMContentLoaded", () => {
     const sidebarModule = window.AutoGL_LoadedModules["panels/sidebar.js"];
     const treeModule = window.AutoGL_LoadedModules["panels/treeview.js"];
@@ -182,48 +223,94 @@ document.addEventListener("DOMContentLoaded", () => {
     const SidebarPanel = sidebarModule.SidebarPanel;
     const TreeView = treeModule.TreeView;
 
-    // Explorer icon toggle
+    // Explorer button
     document.getElementById("btn-explorer").addEventListener("click", () => {
         SidebarPanel.toggleExplorer();
     });
 
-    // Expanded test file tree
-    const tree = {
-        src: {
-            core: {
-                "Renderer.cpp": true,
-                "Renderer.hpp": true
-            },
-            ui: {
-                "GuiApp.cpp": true,
-                panels: {
-                    "Sidebar.cpp": true,
-                    "Editor.cpp": true
-                }
-            },
-            "main.cpp": true
-        },
-        shaders: {
-            basic: {
-                "basic.vert": true,
-                "basic.frag": true
-            },
-            compute: {
-                "test1.comp": true,
-                "test2.comp": true
-            }
-        },
-        assets: {
-            textures: {
-                "checker.png": true,
-                "logo.png": true
+    // ==============================
+    // C++ -> JS 메시지 연결
+    // ==============================
+    window.handlePanelMessage = function(panel, data) {
+        console.log("[JS] handlePanelMessage:", panel, data);
+
+        if (panel === "treeview") {
+            if (data.action === "root") {
+                TreeView.render(data.tree);
+            } else if (data.action === "child") {
+                TreeView.insertChildTree(data.tree);
+            } else if (data.action === "file") {
+                TreeView.handleFileLoad(data);
             }
         }
     };
 
-    TreeView.render(tree);
+    // ==============================
+    // 첫번째 트리 요청
+    // ==============================
+    TreeView.requestRootTree();
 });
-</script>
 
+let editorInstance = null;
+
+require.config({
+    paths: {
+        vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs"
+    }
+});
+
+require(["vs/editor/editor.main"], function () {
+
+    editorInstance = monaco.editor.create(document.getElementById("editor"), {
+        value: "// AutoGL IDE\n",
+        language: "cpp",
+        theme: "vs-dark",
+
+        // === 렌더링 최적화 ===
+        fontSize: 16,
+        lineHeight: 22,
+        fontFamily: "JetBrains Mono, Consolas, 'Courier New', monospace",
+        minimap: { enabled: false },
+        smoothScrolling: true,
+        scrollBeyondLastLine: false,
+
+        cursorBlinking: "solid",
+        cursorSmoothCaretAnimation: false, // 지연 원인 제거
+        renderWhitespace: "none",
+        renderControlCharacters: false,
+        renderLineHighlightOnlyWhenFocus: true,
+
+        // === 자동 리사이즈는 제거하고 수동으로 layout() 적용 ===
+        automaticLayout: false,
+    });
+
+    window.editorInstance = editorInstance;
+    window.__monacoReady = true;
+
+    // 큐에 쌓인 파일 로딩 요청 처리
+    const tvModule = window.AutoGL_LoadedModules["panels/treeview.js"];
+    if (tvModule && tvModule.TreeView) {
+        const TreeView = tvModule.TreeView;
+        window.__pendingFileLoads.forEach(data => {
+            TreeView.handleFileLoad(data);
+        });
+    }
+    window.__pendingFileLoads = [];
+
+    // 수동 layout 이벤트 
+    window.addEventListener("resize", () => {
+        editorInstance.layout();
+    });
+    
+});
+
+const sidebar = document.getElementById("sidebar");
+
+sidebar.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    sidebar.scrollTop += e.deltaY;
+}, { passive: false });
+
+</script>
 </body>
 </html>

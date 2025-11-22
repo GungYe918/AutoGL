@@ -220,6 +220,7 @@ if(ESBUILD_EXECUTABLE)
             "${JS_MAIN_REL}"
             --bundle
             --format=iife
+            --global-name=AutoGLBundle
             "--outfile=${JS_OUTPUT}"
             --sourcemap
         WORKING_DIRECTORY "${UI_DIR}"
