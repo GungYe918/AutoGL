@@ -1,53 +1,50 @@
 // js/panels/sidebar.js
 export class SidebarPanel {
     static toggleExplorer() {
-        const sidebar = document.getElementById("sidebar");
-        const editor  = document.getElementById("editor");
-        const btnExplorer = document.getElementById("btn-explorer");
-
-        const hidden = sidebar.classList.contains("hidden");
-
-        if (hidden) {
-            sidebar.classList.remove("hidden");
-            editor.classList.remove("sidebar-hidden");
-            btnExplorer.classList.add("active");
-        } else {
-            sidebar.classList.add("hidden");
-            editor.classList.add("sidebar-hidden");
-            btnExplorer.classList.remove("active");
-        }
-
-        sendToPanel("sidebar", "open_explorer");
-    }
-
-    static toggleExplorer() {
-        const sidebar = document.getElementById("sidebar");
+        const sidebar      = document.getElementById("sidebar");
         const editorWrapper = document.getElementById("editor-wrapper");
-        const editor = document.getElementById("editor");
-        const btnExplorer = document.getElementById("btn-explorer");
+        const btnExplorer  = document.getElementById("btn-explorer");
 
         const hidden = sidebar.classList.contains("hidden");
 
+        // 클래스 토글: 레이아웃은 아래에서 transition 끝난 뒤에 처리
         if (hidden) {
+            // 사이드바 열기
             sidebar.classList.remove("hidden");
             editorWrapper.classList.remove("sidebar-hidden");
-            editor.classList.remove("sidebar-hidden");
             btnExplorer.classList.add("active");
         } else {
+            // 사이드바 닫기
             sidebar.classList.add("hidden");
             editorWrapper.classList.add("sidebar-hidden");
-            editor.classList.add("sidebar-hidden");
             btnExplorer.classList.remove("active");
         }
 
-        if (window.editorInstance) {
-            setTimeout(() => {
+        // transition 끝난 후에 monaco 레이아웃 맞추기
+        const doLayout = () => {
+            if (window.editorInstance) {
                 window.editorInstance.layout();
-            }, 10);
-        }
+            }
+        };
+
+        // CSS transition(left) 이 끝난 순간에 한번 레이아웃
+        const onTransitionEnd = (ev) => {
+            if (ev.propertyName === "left") {
+                editorWrapper.removeEventListener("transitionend", onTransitionEnd);
+                doLayout();
+            }
+        };
+        editorWrapper.addEventListener("transitionend", onTransitionEnd);
+
+        // 혹시 transition 이벤트를 못 받는 경우를 위한 안전망
+        setTimeout(() => {
+            editorWrapper.removeEventListener("transitionend", onTransitionEnd);
+            doLayout();
+        }, 350); // #editor-wrapper의 transition: left 0.25s 이라서 약간 여유 줌
 
         sendToPanel("sidebar", "open_explorer");
     }
+
 
 
 

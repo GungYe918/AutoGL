@@ -13,42 +13,34 @@ var AutoGLBundle = (() => {
   var SidebarPanel = class _SidebarPanel {
     static toggleExplorer() {
       const sidebar = document.getElementById("sidebar");
-      const editor = document.getElementById("editor");
-      const btnExplorer = document.getElementById("btn-explorer");
-      const hidden = sidebar.classList.contains("hidden");
-      if (hidden) {
-        sidebar.classList.remove("hidden");
-        editor.classList.remove("sidebar-hidden");
-        btnExplorer.classList.add("active");
-      } else {
-        sidebar.classList.add("hidden");
-        editor.classList.add("sidebar-hidden");
-        btnExplorer.classList.remove("active");
-      }
-      sendToPanel("sidebar", "open_explorer");
-    }
-    static toggleExplorer() {
-      const sidebar = document.getElementById("sidebar");
       const editorWrapper = document.getElementById("editor-wrapper");
-      const editor = document.getElementById("editor");
       const btnExplorer = document.getElementById("btn-explorer");
       const hidden = sidebar.classList.contains("hidden");
       if (hidden) {
         sidebar.classList.remove("hidden");
         editorWrapper.classList.remove("sidebar-hidden");
-        editor.classList.remove("sidebar-hidden");
         btnExplorer.classList.add("active");
       } else {
         sidebar.classList.add("hidden");
         editorWrapper.classList.add("sidebar-hidden");
-        editor.classList.add("sidebar-hidden");
         btnExplorer.classList.remove("active");
       }
-      if (window.editorInstance) {
-        setTimeout(() => {
+      const doLayout = () => {
+        if (window.editorInstance) {
           window.editorInstance.layout();
-        }, 10);
-      }
+        }
+      };
+      const onTransitionEnd = (ev) => {
+        if (ev.propertyName === "left") {
+          editorWrapper.removeEventListener("transitionend", onTransitionEnd);
+          doLayout();
+        }
+      };
+      editorWrapper.addEventListener("transitionend", onTransitionEnd);
+      setTimeout(() => {
+        editorWrapper.removeEventListener("transitionend", onTransitionEnd);
+        doLayout();
+      }, 350);
       sendToPanel("sidebar", "open_explorer");
     }
     /** ToolBox toggle 버튼 컨트롤 */
