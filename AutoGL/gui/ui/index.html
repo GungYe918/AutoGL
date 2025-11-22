@@ -34,6 +34,120 @@ body {
     user-select: none;
 }
 
+/* ===== Custom Title Bar ===== */
+#titlebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 32px;
+    background: #202020;
+    color: #ccc;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+    -webkit-app-region: drag;
+    z-index: 2000;
+    user-select: none;
+    font-size: 13px;
+}
+
+/* 왼쪽 영역 그룹 */
+#titlebar-left-group {
+    display: flex;
+    align-items: center;
+    gap: 20px;  /* 제목과 메뉴 사이 거리 */
+    -webkit-app-region: drag;
+}
+
+/* 타이틀 영역 */
+#titlebar-left {
+    font-weight: 500;
+    padding-left: 4px;
+}
+
+/* 메뉴 */
+#titlebar-menu {
+    display: flex;
+    gap: 16px;
+    -webkit-app-region: no-drag;
+}
+
+.menu-item {
+    padding: 4px 6px;
+    border-radius: 3px;
+    font-size: 14px; 
+    padding: 4px 8px;
+}
+
+.menu-item:hover {
+    background: #3a3a3a;
+    color: white;
+    cursor: pointer;
+}
+
+/* 창 버튼 */
+#titlebar-window-controls {
+    display: flex;
+    gap: 10px;
+    -webkit-app-region: no-drag;
+}
+
+.window-btn {
+    font-size: 20px;
+    padding: 4px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.window-btn:hover {
+    background: #333;
+}
+
+.window-btn.close:hover {
+    background: #e81123;
+    color: white;
+}
+
+.dropdown {
+    position: absolute;
+    top: 32px;
+    left: 0;
+    background: #252526;
+    border: 1px solid #444;
+    min-width: 180px;
+    z-index: 3000;
+    display: flex;
+    flex-direction: column;
+    padding: 4px 0;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.dropdown.hidden {
+    display: none;
+}
+
+.dropdown-item {
+    padding: 6px 12px;
+    color: #ccc;
+    white-space: nowrap;
+}
+
+.dropdown-item:hover {
+    background: #094771;
+    color: white;
+    cursor: pointer;
+}
+
+
+/* 전체 레이아웃 요소를 타이틀바 높이만큼 내려줌 */
+#iconbar, #sidebar, #editor-wrapper {
+    top: 32px !important;
+}
+
+
 /* ===== 왼쪽 아이콘 바 ===== */
 #iconbar {
     position: absolute;
@@ -239,6 +353,28 @@ body {
 </style>
 </head>
 <body>
+<!-- ===== Custom Title Bar ===== -->
+<div id="titlebar">
+    <div id="titlebar-left-group">
+        <div id="titlebar-left" class="drag-region">AutoGL IDE</div>
+
+        <div id="titlebar-menu">
+            <span class="menu-item" data-menu="file">File</span>
+            <span class="menu-item" data-menu="edit">Edit</span>
+            <span class="menu-item" data-menu="selection">Selection</span>
+            <span class="menu-item" data-menu="view">View</span>
+            <span class="menu-item" data-menu="terminal">Terminal</span>
+            <span class="menu-item" data-menu="help">Help</span>
+        </div>
+    </div>
+
+    <div id="titlebar-window-controls">
+        <span class="material-icons window-btn" id="btn-min">remove</span>
+        <span class="material-icons window-btn" id="btn-max">crop_square</span>
+        <span class="material-icons window-btn close" id="btn-close">close</span>
+    </div>
+</div>
+
 
 <!-- Icon bar -->
 <div id="iconbar">
@@ -280,7 +416,93 @@ body {
     <div id="editor"></div>
 </div>
 
+<div id="menubar-dropdown" class="dropdown hidden">
+    <div id="dropdown-items"></div>
+</div>
+
+
 <script>
+// 드롭다운 메뉴 설정 
+const menuDefinitions = {
+    file: [
+        { label: "New File", action: "new_file" },
+        { label: "Save", action: "save" },
+        { label: "New Window", action: "new_window" },
+        { label: "Exit", action: "exit" }
+    ],
+    edit: [
+        { label: "Undo", action: "undo" },
+        { label: "Redo", action: "redo" }
+    ],
+    terminal: [
+        { label: "New Terminal", action: "new_terminal" }
+    ],
+    help: [
+        { label: "About", action: "about" }
+    ]
+};
+
+const dropdown = document.getElementById("menubar-dropdown");
+const dropdownItems = document.getElementById("dropdown-items");
+
+document.querySelectorAll(".menu-item").forEach(item => {
+    item.addEventListener("click", (e) => {
+        e.stopPropagation();
+
+        const menuKey = item.dataset.menu;
+        const items = menuDefinitions[menuKey] || [];
+
+        dropdownItems.innerHTML = items
+            .map(i => `<div class="dropdown-item" data-action="${i.action}">${i.label}</div>`)
+            .join("");
+
+        const rect = item.getBoundingClientRect();
+        dropdown.style.left = rect.left + "px";
+        dropdown.classList.remove("hidden");
+    });
+});
+
+dropdownItems.addEventListener("click", (e) => {
+    const action = e.target.dataset.action;
+    dropdown.classList.add("hidden");
+    if (!action) return;
+
+    switch (action) {
+        case "new_file":
+            console.log("New File!");
+            break;
+
+        case "save":
+            const sb = window.AutoGL_LoadedModules["panels/sidebar.js"].SidebarPanel;
+            sb.saveFile();
+            break;
+
+        case "undo":
+            if (window.editorInstance)
+                window.editorInstance.trigger("kb", "undo", null);
+            break;
+
+        case "redo":
+            if (window.editorInstance)
+                window.editorInstance.trigger("kb", "redo", null);
+            break;
+
+        case "exit":
+            window.sendToPanel("window", "close");
+            break;
+
+        case "new_terminal":
+            console.log("New Terminal!");
+            // 원하면 실제 터미널 패널 생성 기능 구현 가능
+            break;
+
+        case "about":
+            alert("AutoGL IDE — Custom WebView IDE");
+            break;
+    }
+});
+
+
 window.__monacoReady = false;
 window.__pendingFileLoads = [];
 
@@ -392,10 +614,44 @@ document.addEventListener("keydown", (e) => {
 
     // Ctrl + Shift + Z   -> redo
     if (e.ctrlKey && e.shiftKey && e.key === "z") {
-        e.preventDefault();
+        e.preventDefault();12
+        
         if (window.editorInstance) window.editorInstance.trigger("kb", "redo", null);
     }
 });
+
+document.getElementById("btn-close").onclick = () => {
+    window.sendToPanel("window", "close");
+};
+document.getElementById("btn-min").onclick = () => {
+    window.sendToPanel("window", "minimize");
+};
+document.getElementById("btn-max").onclick = () => {
+    window.sendToPanel("window", "maximize");
+};
+
+// ===== 창 이동 (타이틀바 드래그) =====
+const titlebar = document.getElementById("titlebar");
+
+titlebar.addEventListener("mousedown", (e) => {
+    // 왼쪽 버튼만, 메뉴/윈도우 버튼은 제외
+    if (e.button !== 0) return;
+    if (e.target.closest("#titlebar-window-controls")) return;
+    if (e.target.closest("#titlebar-menu")) return;
+
+    // 페이지 내 텍스트 선택/드래그 방지
+    e.preventDefault();
+
+    // GTK 측에 한 번만 begin_move 요청하면 이후 모션은 GTK가 처리
+    window.sendToPanel("window", JSON.stringify({
+        action: "begin_move",
+        button: 1,            // GTK에서 왼쪽 버튼은 1
+        x: e.screenX,
+        y: e.screenY
+    }));
+});
+
+
 </script>
 </body>
 </html>
