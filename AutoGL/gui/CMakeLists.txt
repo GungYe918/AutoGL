@@ -116,6 +116,9 @@ file(GLOB_RECURSE JS_MODULES
 )
 list(REMOVE_ITEM JS_MODULES "main.js" "main.tmp.js")
 
+# 중복되는 파일 제거
+list(REMOVE_DUPLICATES JS_MODULES)
+
 message(STATUS "[JS] Found JS modules:")
 foreach(MOD ${JS_MODULES})
     message(STATUS "   JS module: ${MOD}")
@@ -133,11 +136,14 @@ foreach(MOD ${JS_MODULES})
     # 폴더 구분자 '/' 를 '_' 로 바꿔서 JS 식별자에 안전한 이름 생성
     string(REPLACE "/" "_" MOD_ID "${MOD_ID_TMP}")
 
-    # import 구문 생성
-    set(AUTO_IMPORT_CODE
-        "${AUTO_IMPORT_CODE}import * as mod_${MOD_ID} from \"./${MOD_PATH}\";\n"
-        "${AUTO_IMPORT_CODE}window.AutoGL_LoadedModules[\"${MOD_PATH}\"] = mod_${MOD_ID};\n\n"
+    # import 구문 생성 (중복 없이 안정적으로 append)
+    string(APPEND AUTO_IMPORT_CODE
+        "import * as mod_${MOD_ID} from \"./${MOD_PATH}\";\n"
     )
+    string(APPEND AUTO_IMPORT_CODE
+        "window.AutoGL_LoadedModules[\"${MOD_PATH}\"] = mod_${MOD_ID};\n\n"
+    )
+
 endforeach()
 
 # main.js 템플릿 읽기
