@@ -1,657 +1,794 @@
 <!DOCTYPE html>
 <html>
 <head>
-<script src="./bundle.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js" defer></script>
-<meta charset="UTF-8" />
-<title>AutoGL IDE</title>
-
-<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-
-<style>
-:root {
-    --bg-dark: #1e1e1e;
-    --bg-sidebar: #252526;
-    --text-color: #dcdcdc;
-    --accent: #0e639c;
-
-    /* 사이드바 너비 (토글 시 JS에서 변경) */
-    --sidebar-width: 260px;
-}
-
-/* ===== 전체 레이아웃 ===== */
-body {
-    margin: 0;
-    font-family: "Segoe UI", sans-serif;
-    background: var(--bg-dark);
-    color: var(--text-color);
-    overflow: hidden;
-
-    /* 기본적으로 드래그(텍스트 선택) 금지 */
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    user-select: none;
-}
-
-/* ===== Custom Title Bar ===== */
-#titlebar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 32px;
-    background: #202020;
-    color: #ccc;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 8px;
-    -webkit-app-region: drag;
-    z-index: 2000;
-    user-select: none;
-    font-size: 13px;
-}
-
-/* 왼쪽 영역 그룹 */
-#titlebar-left-group {
-    display: flex;
-    align-items: center;
-    gap: 20px;  /* 제목과 메뉴 사이 거리 */
-    -webkit-app-region: drag;
-}
-
-/* 타이틀 영역 */
-#titlebar-left {
-    font-weight: 500;
-    padding-left: 4px;
-}
-
-/* 메뉴 */
-#titlebar-menu {
-    display: flex;
-    gap: 16px;
-    -webkit-app-region: no-drag;
-}
-
-.menu-item {
-    padding: 4px 6px;
-    border-radius: 3px;
-    font-size: 14px; 
-    padding: 4px 8px;
-}
-
-.menu-item:hover {
-    background: #3a3a3a;
-    color: white;
-    cursor: pointer;
-}
-
-/* 창 버튼 */
-#titlebar-window-controls {
-    display: flex;
-    gap: 10px;
-    -webkit-app-region: no-drag;
-}
-
-.window-btn {
-    font-size: 20px;
-    padding: 4px;
-    border-radius: 4px;
-    cursor: pointer;
-}
-
-.window-btn:hover {
-    background: #333;
-}
-
-.window-btn.close:hover {
-    background: #e81123;
-    color: white;
-}
-
-.dropdown {
-    position: absolute;
-    top: 32px;
-    left: 0;
-    background: #252526;
-    border: 1px solid #444;
-    min-width: 180px;
-    z-index: 3000;
-    display: flex;
-    flex-direction: column;
-    padding: 4px 0;
-    border-radius: 6px;
-    overflow: hidden;
-}
-
-.dropdown.hidden {
-    display: none;
-}
-
-.dropdown-item {
-    padding: 6px 12px;
-    color: #ccc;
-    white-space: nowrap;
-}
-
-.dropdown-item:hover {
-    background: #094771;
-    color: white;
-    cursor: pointer;
-}
+    <script src="./bundle.js" defer></script>
+    <script src="./libs/jquery/jquery.min.js"></script>
 
 
-/* 전체 레이아웃 요소를 타이틀바 높이만큼 내려줌 */
-#iconbar, #sidebar, #editor-wrapper {
-    top: 32px !important;
-}
+    <link rel="stylesheet" href="./libs/terminal/jquery.terminal.min.css">
+    <script src="./libs/terminal/jquery.terminal.min.js"></script>
+    <script src="./libs/terminal/unix_formatting.js"></script>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
 
-/* ===== 왼쪽 아이콘 바 ===== */
-#iconbar {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: 50px;
-    background: #2d2d2d;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding-top: 12px;
-    border-right: 1px solid #000;
-}
+    <meta charset="UTF-8" />
+    <title>AutoGL IDE</title>
 
-#iconbar .icon-btn {
-    width: 40px;
-    height: 40px;
-    margin: 6px 0;
-    color: #ccc;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: background 0.2s, transform 0.15s;
-}
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
-#iconbar .icon-btn:hover {
-    background: #3a3d41;
-    transform: scale(1.1);
-}
+    <style>
+    :root {
+        --bg-dark: #1e1e1e;
+        --bg-sidebar: #252526;
+        --text-color: #dcdcdc;
+        --accent: #0e639c;
 
-#iconbar .icon-btn.active {
-    background: var(--accent);
-    color: white;
-}
+        /* 사이드바 너비 (토글 시 JS에서 변경) */
+        --sidebar-width: 260px;
 
-#toolbox-wrapper {
-    margin-top: auto;
-    padding-bottom: 10px;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
+        --size: 1.2; /* 1.0 = 기본(약 14px), 1.2면 ~16~17px 느낌 */
+        --font: "JetBrains Mono", Monaco, Consolas, "Courier New", monospace;
+    }
 
+    /* ===== 전체 레이아웃 ===== */
+    body {
+        margin: 0;
+        font-family: "Segoe UI", sans-serif;
+        background: var(--bg-dark);
+        color: var(--text-color);
+        overflow: hidden;
 
-#toolbox-panel {
-    position: absolute;
-    bottom: 70px;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 6px 2px;
-    background: #3a3d41;
-    border-radius: 10px;
-    display: none;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-}
+        /* 기본적으로 드래그(텍스트 선택) 금지 */
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        user-select: none;
+    }
 
-/* 펼쳐졌을 때만 보이도록 */
-#toolbox-panel.open {
-    display: flex;
-}
+    /* ===== Custom Title Bar ===== */
+    #titlebar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 32px;
+        background: #202020;
+        color: #ccc;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 8px;
+        -webkit-app-region: drag;
+        z-index: 2000;
+        user-select: none;
+        font-size: 13px;
+    }
 
-/* 개별 버튼: icon-btn과 같은 x축, 색상도 panel과 통일 */
-.tool-btn {
-    width: 40px;              /* icon-btn 과 동일 */
-    height: 40px;
-    background: #3a3d41;      /* panel과 같은 색상 */
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #ddd;
-    cursor: pointer;
-    transition: background 0.2s, transform 0.15s;
-}
+    /* 왼쪽 영역 그룹 */
+    #titlebar-left-group {
+        display: flex;
+        align-items: center;
+        gap: 20px;  /* 제목과 메뉴 사이 거리 */
+        -webkit-app-region: drag;
+    }
 
-.tool-btn:hover {
-    background: #4a4d50;
-    transform: scale(1.1);
-}
+    /* 타이틀 영역 */
+    #titlebar-left {
+        font-weight: 500;
+        padding-left: 4px;
+    }
 
-/* ===== 사이드바 ===== */
-#sidebar {
-    overflow-x: auto;
-    overflow-y: auto;
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 50px;
-    width: var(--sidebar-width);
-    background: var(--bg-sidebar);
-    border-right: 1px solid #000;
-    padding: 10px;
-    transition: width 0.25s ease-out;
-    display: flex;
-    flex-direction: column;
-}
+    /* 메뉴 */
+    #titlebar-menu {
+        display: flex;
+        gap: 16px;
+        -webkit-app-region: no-drag;
+    }
 
-#sidebar.hidden {
-    width: 0 !important;
-    padding: 0;
-    overflow: hidden;
-    border-right: none;
-}
+    .menu-item {
+        padding: 4px 6px;
+        border-radius: 3px;
+        font-size: 14px; 
+        padding: 4px 8px;
+    }
 
-#sidebar h3 {
-    margin: 6px 0 10px;
-    font-size: 13px;
-    text-transform: uppercase;
-    color: #ddd;
-}
+    .menu-item:hover {
+        background: #3a3a3a;
+        color: white;
+        cursor: pointer;
+    }
 
-/* ===== 트리뷰 ===== */
-.tree-node {
-    display: flex;
-    align-items: center;
-    padding: 2px 4px;
-    cursor: pointer;
-    border-radius: 3px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    width: max-content;
+    /* 창 버튼 */
+    #titlebar-window-controls {
+        display: flex;
+        gap: 10px;
+        -webkit-app-region: no-drag;
+    }
 
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    user-select: none;
-}
+    .window-btn {
+        font-size: 20px;
+        padding: 4px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
 
-.tree-node:hover {
-    background: #3b3e40;
-    will-change: background;
-}
+    .window-btn:hover {
+        background: #333;
+    }
 
-.tree-node .material-icons {
-    font-size: 18px;
-}
+    .window-btn.close:hover {
+        background: #e81123;
+        color: white;
+    }
 
-/* 파일/폴더 앞의 아이콘 */
-.tree-arrow {
-    width: 18px;
-    text-align: center;
-    color: #aaa;
-}
+    .dropdown {
+        position: absolute;
+        top: 32px;
+        left: 0;
+        background: #252526;
+        border: 1px solid #444;
+        min-width: 180px;
+        z-index: 3000;
+        display: flex;
+        flex-direction: column;
+        padding: 4px 0;
+        border-radius: 6px;
+        overflow: hidden;
+    }
 
-/* 자식 폴더 */
-.tree-children {
-    margin-left: 18px;
-    display: none;
-}
+    .dropdown.hidden {
+        display: none;
+    }
 
-.tree-folder.open > .tree-children {
-    display: block;
-}
+    .dropdown-item {
+        padding: 6px 12px;
+        color: #ccc;
+        white-space: nowrap;
+    }
 
-/* 전체 트리 영역 */
-#file-tree {
-    flex-grow: 1;
-    overflow-y: auto;
-    padding-right: 8px;
-    min-width: 130%;
-    display: block;
-    overscroll-behavior: contain;
-}
+    .dropdown-item:hover {
+        background: #094771;
+        color: white;
+        cursor: pointer;
+    }
 
-/* ===== 에디터 영역 ===== */
+    /* 전체 레이아웃 요소를 타이틀바 높이만큼 내려줌 */
+    #iconbar, #sidebar, #editor-wrapper {
+        top: 32px !important;
+    }
 
-/* wrapper가 실제 에디터 컨테이너 */
-#editor-wrapper {
-    position: absolute;
-    top: 0;
-    left: calc(50px + var(--sidebar-width));  /* 사이드바 너비 반영 */
-    right: 0;
-    bottom: 0;
-    background: #1e1e1e;
-    overflow: hidden;
-    transition: left 0.25s ease-out;
-}
+    /* ===== 왼쪽 아이콘 바 ===== */
+    #iconbar {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 50px;
+        background: #2d2d2d;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-top: 12px;
+        border-right: 1px solid #000;
+    }
 
-/* 상단 여백 (VSCode처럼 약간 띄움) */
-#editor {
-    position: absolute;
-    top: 100px;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    overflow: hidden;
+    #iconbar .icon-btn {
+        width: 40px;
+        height: 40px;
+        margin: 6px 0;
+        color: #ccc;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.2s, transform 0.15s;
+    }
 
-    /* 에디터 안에서는 드래그(텍스트 선택) 허용 */
-    -webkit-user-select: text;
-    -moz-user-select: text;
-    user-select: text;
-}
+    #iconbar .icon-btn:hover {
+        background: #3a3d41;
+        transform: scale(1.1);
+    }
 
-#editor-wrapper.sidebar-hidden {
-    left: 50px;
-}
+    #iconbar .icon-btn.active {
+        background: var(--accent);
+        color: white;
+    }
+
+    #toolbox-wrapper {
+        margin-top: auto;
+        padding-bottom: 10px;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    #toolbox-panel {
+        position: absolute;
+        bottom: 70px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 6px 2px;
+        background: #3a3d41;
+        border-radius: 10px;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+    }
+
+    /* 펼쳐졌을 때만 보이도록 */
+    #toolbox-panel.open {
+        display: flex;
+    }
+
+    /* 개별 버튼: icon-btn과 같은 x축, 색상도 panel과 통일 */
+    .tool-btn {
+        width: 40px;
+        height: 40px;
+        background: #3a3d41;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #ddd;
+        cursor: pointer;
+        transition: background 0.2s, transform 0.15s;
+    }
+
+    .tool-btn:hover {
+        background: #4a4d50;
+        transform: scale(1.1);
+    }
+
+    /* ===== 사이드바 ===== */
+    #sidebar {
+        overflow-x: auto;
+        overflow-y: auto;
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50px;
+        width: var(--sidebar-width);
+        background: var(--bg-sidebar);
+        border-right: 1px solid #000;
+        padding: 10px;
+        transition: width 0.25s ease-out;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #sidebar.hidden {
+        width: 0 !important;
+        padding: 0;
+        overflow: hidden;
+        border-right: none;
+    }
+
+    #sidebar h3 {
+        margin: 6px 0 10px;
+        font-size: 13px;
+        text-transform: uppercase;
+        color: #ddd;
+    }
+
+    /* ===== 트리뷰 ===== */
+    .tree-node {
+        display: flex;
+        align-items: center;
+        padding: 2px 4px;
+        cursor: pointer;
+        border-radius: 3px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        width: max-content;
+
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        user-select: none;
+    }
+
+    .tree-node:hover {
+        background: #3b3e40;
+        will-change: background;
+    }
+
+    .tree-node .material-icons {
+        font-size: 18px;
+    }
+
+    .tree-arrow {
+        width: 18px;
+        text-align: center;
+        color: #aaa;
+    }
+
+    .tree-children {
+        margin-left: 18px;
+        display: none;
+    }
+
+    .tree-folder.open > .tree-children {
+        display: block;
+    }
+
+    #file-tree {
+        flex-grow: 1;
+        overflow-y: auto;
+        padding-right: 8px;
+        min-width: 130%;
+        display: block;
+        overscroll-behavior: contain;
+    }
+
+    /* ===== 에디터 영역 ===== */
+    #editor-wrapper {
+        position: absolute;
+        top: 0;
+        left: calc(50px + var(--sidebar-width));
+        right: 0;
+        bottom: 0;
+        background: #1e1e1e;
+        overflow: hidden;
+        transition: left 0.25s ease-out;
+    }
+
+    #editor {
+        position: absolute;
+        top: 100px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        overflow: hidden;
+
+        -webkit-user-select: text;
+        -moz-user-select: text;
+        user-select: text;
+    }
+
+    #editor-wrapper.sidebar-hidden {
+        left: 50px;
+    }
+
+    /* ===== 터미널 패널 ===== */
+    #terminal-panel {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+
+        height: 250px;
+        background: #1e1e1e;
+        border-top: 1px solid #333;
+
+        display: flex;
+        flex-direction: column;
+
+        transition: height 0.1s linear;
+        overflow: hidden;
+    }
+
+    #terminal-panel.hidden {
+        display: none;
+    }
+
+    #terminal-resize-bar {
+        height: 6px;
+        background: #333;
+        cursor: ns-resize;
+        flex-shrink: 0;
+    }
+
+    #terminal-container {
+        flex-grow: 1;
+        overflow: hidden;
+    }
 </style>
 </head>
 <body>
-<!-- ===== Custom Title Bar ===== -->
-<div id="titlebar">
-    <div id="titlebar-left-group">
-        <div id="titlebar-left" class="drag-region">AutoGL IDE</div>
+    <!-- ===== Custom Title Bar ===== -->
+    <div id="titlebar">
+        <div id="titlebar-left-group">
+            <div id="titlebar-left" class="drag-region">AutoGL IDE</div>
 
-        <div id="titlebar-menu">
-            <span class="menu-item" data-menu="file">File</span>
-            <span class="menu-item" data-menu="edit">Edit</span>
-            <span class="menu-item" data-menu="selection">Selection</span>
-            <span class="menu-item" data-menu="view">View</span>
-            <span class="menu-item" data-menu="terminal">Terminal</span>
-            <span class="menu-item" data-menu="help">Help</span>
+            <div id="titlebar-menu">
+                <span class="menu-item" data-menu="file">File</span>
+                <span class="menu-item" data-menu="edit">Edit</span>
+                <span class="menu-item" data-menu="selection">Selection</span>
+                <span class="menu-item" data-menu="view">View</span>
+                <span class="menu-item" data-menu="terminal">Terminal</span>
+                <span class="menu-item" data-menu="help">Help</span>
+            </div>
+        </div>
+
+        <div id="titlebar-window-controls">
+            <span class="material-icons window-btn" id="btn-min">remove</span>
+            <span class="material-icons window-btn" id="btn-max">crop_square</span>
+            <span class="material-icons window-btn close" id="btn-close">close</span>
         </div>
     </div>
 
-    <div id="titlebar-window-controls">
-        <span class="material-icons window-btn" id="btn-min">remove</span>
-        <span class="material-icons window-btn" id="btn-max">crop_square</span>
-        <span class="material-icons window-btn close" id="btn-close">close</span>
-    </div>
-</div>
-
-
-<!-- Icon bar -->
-<div id="iconbar">
-    <div class="icon-btn active" id="btn-explorer">
-        <span class="material-icons">folder</span>
-    </div>
-
-    <div class="icon-btn" id="btn-search">
-        <span class="material-icons">search</span>
-    </div>
-
-    <div class="icon-btn" id="btn-settings">
-        <span class="material-icons">settings</span>
-    </div>
-
-    <!-- ToolBox 버튼 + 패널 -->
-    <div id="toolbox-wrapper">
-        <!-- 패널을 DOM 상 먼저 두고, flex-direction: column-reverse 로 버튼을 아래에 보이게 -->
-        <div id="toolbox-panel">
-            <div class="tool-btn" id="btn-save"><span class="material-icons">save</span></div>
-            <div class="tool-btn" id="btn-undo"><span class="material-icons">undo</span></div>
-            <div class="tool-btn" id="btn-redo"><span class="material-icons">redo</span></div>
+    <!-- Icon bar -->
+    <div id="iconbar">
+        <div class="icon-btn active" id="btn-explorer">
+            <span class="material-icons">folder</span>
         </div>
 
-        <div class="icon-btn" id="btn-toolbox">
-            <span class="material-icons">construction</span>
+        <div class="icon-btn" id="btn-search">
+            <span class="material-icons">search</span>
+        </div>
+
+        <div class="icon-btn" id="btn-settings">
+            <span class="material-icons">settings</span>
+        </div>
+
+        <div id="toolbox-wrapper">
+            <div id="toolbox-panel">
+                <div class="tool-btn" id="btn-save"><span class="material-icons">save</span></div>
+                <div class="tool-btn" id="btn-undo"><span class="material-icons">undo</span></div>
+                <div class="tool-btn" id="btn-redo"><span class="material-icons">redo</span></div>
+            </div>
+
+            <div class="icon-btn" id="btn-toolbox">
+                <span class="material-icons">construction</span>
+            </div>
         </div>
     </div>
-</div>
 
-<!-- Sidebar -->
-<div id="sidebar">
-    <h3>Explorer</h3>
-    <div id="file-tree"></div>
-</div>
+    <!-- Sidebar -->
+    <div id="sidebar">
+        <h3>Explorer</h3>
+        <div id="file-tree"></div>
+    </div>
 
-<!-- Editor -->
-<div id="editor-wrapper">
-    <div id="editor"></div>
-</div>
+    <!-- Editor + Terminal -->
+    <div id="editor-wrapper">
+        <div id="editor"></div>
 
-<div id="menubar-dropdown" class="dropdown hidden">
-    <div id="dropdown-items"></div>
-</div>
+        <div id="terminal-panel" class="hidden">
+            <div id="terminal-resize-bar"></div>
+            <div id="terminal-container"></div>
+        </div>
+    </div>
 
+    <div id="menubar-dropdown" class="dropdown hidden">
+        <div id="dropdown-items"></div>
+    </div>
 
-<script>
-// 드롭다운 메뉴 설정 
-const menuDefinitions = {
-    file: [
-        { label: "New File", action: "new_file" },
-        { label: "Save", action: "save" },
-        { label: "New Window", action: "new_window" },
-        { label: "Exit", action: "exit" }
-    ],
-    edit: [
-        { label: "Undo", action: "undo" },
-        { label: "Redo", action: "redo" }
-    ],
-    terminal: [
-        { label: "New Terminal", action: "new_terminal" }
-    ],
-    help: [
-        { label: "About", action: "about" }
-    ]
-};
-
-const dropdown = document.getElementById("menubar-dropdown");
-const dropdownItems = document.getElementById("dropdown-items");
-
-document.querySelectorAll(".menu-item").forEach(item => {
-    item.addEventListener("click", (e) => {
-        e.stopPropagation();
-
-        const menuKey = item.dataset.menu;
-        const items = menuDefinitions[menuKey] || [];
-
-        dropdownItems.innerHTML = items
-            .map(i => `<div class="dropdown-item" data-action="${i.action}">${i.label}</div>`)
-            .join("");
-
-        const rect = item.getBoundingClientRect();
-        dropdown.style.left = rect.left + "px";
-        dropdown.classList.remove("hidden");
-    });
-});
-
-dropdownItems.addEventListener("click", (e) => {
-    const action = e.target.dataset.action;
-    dropdown.classList.add("hidden");
-    if (!action) return;
-
-    switch (action) {
-        case "new_file":
-            console.log("New File!");
-            break;
-
-        case "save":
-            const sb = window.AutoGL_LoadedModules["panels/sidebar.js"].SidebarPanel;
-            sb.saveFile();
-            break;
-
-        case "undo":
-            if (window.editorInstance)
-                window.editorInstance.trigger("kb", "undo", null);
-            break;
-
-        case "redo":
-            if (window.editorInstance)
-                window.editorInstance.trigger("kb", "redo", null);
-            break;
-
-        case "exit":
-            window.sendToPanel("window", "close");
-            break;
-
-        case "new_terminal":
-            console.log("New Terminal!");
-            // 원하면 실제 터미널 패널 생성 기능 구현 가능
-            break;
-
-        case "about":
-            alert("AutoGL IDE — Custom WebView IDE");
-            break;
-    }
-});
-
-
-window.__monacoReady = false;
-window.__pendingFileLoads = [];
-
-document.addEventListener("DOMContentLoaded", () => {
-    const sidebarModule = window.AutoGL_LoadedModules["panels/sidebar.js"];
-    const treeModule = window.AutoGL_LoadedModules["panels/treeview.js"];
-
-    if (!sidebarModule || !treeModule) {
-        console.error("Web modules failed to load.");
-        return;
-    }
-
-    const SidebarPanel = sidebarModule.SidebarPanel;
-    const TreeView = treeModule.TreeView;
-
-    SidebarPanel.initToolBox();  // btn-toolbox / toolbox-panel 제어
-
-    // Explorer button
-    document.getElementById("btn-explorer").addEventListener("click", () => {
-        SidebarPanel.toggleExplorer();
-    });
-
-    // C++ -> JS 메시지 연결
-    window.handlePanelMessage = function(panel, data) {
-        console.log("[JS] handlePanelMessage:", panel, data);
-
-        if (panel === "treeview") {
-            if (data.action === "root") {
-                TreeView.render(data.tree);
-            } else if (data.action === "child") {
-                TreeView.insertChildTree(data.tree);
-            } else if (data.action === "file") {
-                TreeView.handleFileLoad(data);
-            }
-        }
+    <script>
+    // ===== 메뉴 정의 =====
+    const menuDefinitions = {
+        file: [
+            { label: "New File", action: "new_file" },
+            { label: "Save", action: "save" },
+            { label: "New Window", action: "new_window" },
+            { label: "Exit", action: "exit" }
+        ],
+        edit: [
+            { label: "Undo", action: "undo" },
+            { label: "Redo", action: "redo" }
+        ],
+        terminal: [
+            { label: "New Terminal", action: "new_terminal" }
+        ],
+        help: [
+            { label: "About", action: "about" }
+        ]
     };
 
-    // 첫번째 트리 요청
-    TreeView.requestRootTree();
-});
+    const dropdown = document.getElementById("menubar-dropdown");
+    const dropdownItems = document.getElementById("dropdown-items");
 
-let editorInstance = null;
+    document.querySelectorAll(".menu-item").forEach(item => {
+        item.addEventListener("click", (e) => {
+            e.stopPropagation();
 
-require.config({
-    paths: {
-        vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs"
-    }
-});
+            const menuKey = item.dataset.menu;
+            const items = menuDefinitions[menuKey] || [];
 
-require(["vs/editor/editor.main"], function () {
-    editorInstance = monaco.editor.create(document.getElementById("editor"), {
-        value: "// AutoGL IDE\n",
-        language: "cpp",
-        theme: "vs-dark",
+            dropdownItems.innerHTML = items
+                .map(i => `<div class="dropdown-item" data-action="${i.action}">${i.label}</div>`)
+                .join("");
 
-        fontSize: 16,
-        lineHeight: 22,
-        fontFamily: "JetBrains Mono, Consolas, 'Courier New', monospace",
-        minimap: { enabled: false },
-        smoothScrolling: true,
-        scrollBeyondLastLine: false,
-
-        cursorBlinking: "solid",
-        cursorSmoothCaretAnimation: false,
-        renderWhitespace: "none",
-        renderControlCharacters: false,
-        renderLineHighlightOnlyWhenFocus: true,
-        automaticLayout: false,
+            const rect = item.getBoundingClientRect();
+            dropdown.style.left = rect.left + "px";
+            dropdown.classList.remove("hidden");
+        });
     });
 
-    window.editorInstance = editorInstance;
-    window.__monacoReady = true;
+    let terminalInstance = null;
 
-    const tvModule = window.AutoGL_LoadedModules["panels/treeview.js"];
-    if (tvModule && tvModule.TreeView) {
-        const TreeView = tvModule.TreeView;
-        window.__pendingFileLoads.forEach(data => {
-            TreeView.handleFileLoad(data);
-        });
+    
+    function openTerminal() {
+        const panel     = document.getElementById("terminal-panel");
+        const container = document.getElementById("terminal-container");
+
+        panel.classList.remove("hidden");
+
+        if (!terminalInstance) {
+            if (!window.jQuery || !jQuery.fn || !jQuery.fn.terminal) {
+                console.error("jQuery Terminal plugin is not available. Check script order.");
+                return;
+            }
+
+            terminalInstance = jQuery(container).terminal(function(command) {
+                if (command.trim() === "") return;
+                // C++ 쪽으로 실제 명령 전달
+                window.sendToPanel("terminal", command);
+            }, {
+                greetings: "",      // zsh가 자기 인사말/프롬프트 출력
+                prompt: "",         // jQuery Terminal 자체 프롬프트는 비움
+                name: "autogl_terminal",
+                height: "100%",
+                width: "100%",
+                completion: true
+            });
+        }
+        terminalInstance.focus();
+        updateEditorHeight();
     }
+
+    
+    dropdownItems.addEventListener("click", (e) => {
+        const action = e.target.dataset.action;
+        dropdown.classList.add("hidden");
+        if (!action) return;
+
+        switch (action) {
+            case "new_file":
+                console.log("New File!");
+                break;
+
+            case "save": {
+                const sb = window.AutoGL_LoadedModules["panels/sidebar.js"].SidebarPanel;
+                sb.saveFile();
+                break;
+            }
+
+            case "undo":
+                if (window.editorInstance)
+                    window.editorInstance.trigger("kb", "undo", null);
+                break;
+
+            case "redo":
+                if (window.editorInstance)
+                    window.editorInstance.trigger("kb", "redo", null);
+                break;
+
+            case "exit":
+                window.sendToPanel("window", "close");
+                break;
+
+            case "new_terminal":
+                openTerminal();
+                break;
+
+            case "about":
+                alert("AutoGL IDE — Custom WebView IDE");
+                break;
+        }
+    });
+
+    window.__monacoReady = false;
     window.__pendingFileLoads = [];
 
-    window.addEventListener("resize", () => {
-        editorInstance.layout();
+    document.addEventListener("DOMContentLoaded", () => {
+        const sidebarModule = window.AutoGL_LoadedModules["panels/sidebar.js"];
+        const treeModule = window.AutoGL_LoadedModules["panels/treeview.js"];
+
+        if (!sidebarModule || !treeModule) {
+            console.error("Web modules failed to load.");
+            return;
+        }
+
+        const SidebarPanel = sidebarModule.SidebarPanel;
+        const TreeView = treeModule.TreeView;
+
+        SidebarPanel.initToolBox();
+
+        document.getElementById("btn-explorer").addEventListener("click", () => {
+            SidebarPanel.toggleExplorer();
+        });
+
+        window.handlePanelMessage = function(panel, data) {
+            console.log("[JS] handlePanelMessage:", panel, data);
+
+            if (panel === "treeview") {
+                if (data.action === "root") {
+                    TreeView.render(data.tree);
+                } else if (data.action === "child") {
+                    TreeView.insertChildTree(data.tree);
+                } else if (data.action === "file") {
+                    TreeView.handleFileLoad(data);
+                }
+            }
+
+            
+            if (panel === "terminal") {
+                if (terminalInstance) {
+                    terminalInstance.echo(data.output);
+                }
+                return;
+            }
+        };
+
+
+        window.sendToPanel("terminal", "__ready__");
+        TreeView.requestRootTree();
     });
-});
 
-// 사이드바 휠 스크롤
-const sidebar = document.getElementById("sidebar");
-sidebar.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    sidebar.scrollTop += e.deltaY;
-}, { passive: false });
+    // ===== Monaco =====
+    let editorInstance = null;
 
-// 키보드 단축키
-document.addEventListener("keydown", (e) => {
-    // Ctrl + S   -> save
-    if (e.ctrlKey && e.key === "s") {
+    if (typeof require !== "undefined") {
+        require.config({
+            paths: {
+                vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs"
+            }
+        });
+
+        require(["vs/editor/editor.main"], function () {
+            editorInstance = monaco.editor.create(document.getElementById("editor"), {
+                value: "// AutoGL IDE\n",
+                language: "cpp",
+                theme: "vs-dark",
+
+                fontSize: 16,
+                lineHeight: 22,
+                fontFamily: "JetBrains Mono, Consolas, 'Courier New', monospace",
+                minimap: { enabled: false },
+                smoothScrolling: true,
+                scrollBeyondLastLine: false,
+
+                cursorBlinking: "solid",
+                cursorSmoothCaretAnimation: false,
+                renderWhitespace: "none",
+                renderControlCharacters: false,
+                renderLineHighlightOnlyWhenFocus: true,
+                automaticLayout: false
+            });
+
+            window.editorInstance = editorInstance;
+            window.__monacoReady = true;
+
+            const tvModule = window.AutoGL_LoadedModules["panels/treeview.js"];
+            if (tvModule && tvModule.TreeView) {
+                const TreeView = tvModule.TreeView;
+                window.__pendingFileLoads.forEach(data => {
+                    TreeView.handleFileLoad(data);
+                });
+            }
+            window.__pendingFileLoads = [];
+
+            window.addEventListener("resize", () => {
+                editorInstance.layout();
+            });
+        });
+    } else {
+        console.error("Monaco loader 'require' is not available.");
+    }
+
+    // ===== 터미널 리사이즈 =====
+    (function() {
+        const panel = document.getElementById("terminal-panel");
+        const bar = document.getElementById("terminal-resize-bar");
+
+        let dragging = false;
+        let startY = 0;
+        let startHeight = 0;
+
+        bar.addEventListener("mousedown", (e) => {
+            dragging = true;
+            startY = e.clientY;
+            startHeight = panel.offsetHeight;
+
+            // 드래그 중 텍스트 선택 및 Monaco 반응 차단
+            document.body.style.userSelect = "none";
+            document.body.style.pointerEvents = "none";
+
+            // 단, 리사이즈 바는 이벤트를 받아야 함
+            bar.style.pointerEvents = "auto";
+
+            e.preventDefault();
+        });
+
+        window.addEventListener("mousemove", (e) => {
+            if (!dragging) return;
+
+            const dy = startY - e.clientY;
+            let newHeight = startHeight + dy;
+
+            if (newHeight < 100) newHeight = 100;
+            if (newHeight > window.innerHeight - 100) newHeight = window.innerHeight - 100;
+
+            panel.style.height = newHeight + "px";
+
+            // Monaco 레이아웃 갱신
+            if (window.editorInstance) window.editorInstance.layout();
+        });
+
+        window.addEventListener("mouseup", () => {
+            dragging = false;
+
+            // user-select / pointerEvents 복구
+            document.body.style.userSelect = "";
+            document.body.style.pointerEvents = "";
+        });
+    })();
+
+
+    function updateEditorHeight() {
+        const terminalPanel = document.getElementById("terminal-panel");
+        const editor = document.getElementById("editor");
+
+        if (terminalPanel.classList.contains("hidden")) {
+            editor.style.bottom = "0";
+        } else {
+            editor.style.bottom = terminalPanel.offsetHeight + "px";
+        }
+
+        if (window.editorInstance)
+            window.editorInstance.layout();
+    }
+
+    new ResizeObserver(updateEditorHeight)
+        .observe(document.getElementById("terminal-panel"));
+
+    // ===== 사이드바 휠 =====
+    const sidebar = document.getElementById("sidebar");
+    sidebar.addEventListener("wheel", (e) => {
         e.preventDefault();
-        const sb = window.AutoGL_LoadedModules["panels/sidebar.js"].SidebarPanel;
-        sb.saveFile();
-    }
+        sidebar.scrollTop += e.deltaY;
+    }, { passive: false });
 
-    // Ctrl + Z   -> undo
-    if (e.ctrlKey && e.key === "z" && !e.shiftKey) {
+    // ===== 단축키 =====
+    document.addEventListener("keydown", (e) => {
+        if (e.ctrlKey && e.key === "s") {
+            e.preventDefault();
+            const sb = window.AutoGL_LoadedModules["panels/sidebar.js"].SidebarPanel;
+            sb.saveFile();
+        }
+
+        if (e.ctrlKey && e.key === "z" && !e.shiftKey) {
+            e.preventDefault();
+            if (window.editorInstance) window.editorInstance.trigger("kb", "undo", null);
+        }
+
+        if (e.ctrlKey && e.shiftKey && e.key === "z") {
+            e.preventDefault();
+            if (window.editorInstance) window.editorInstance.trigger("kb", "redo", null);
+        }
+    });
+
+    // ===== 창 제어 =====
+    document.getElementById("btn-close").onclick = () => {
+        window.sendToPanel("window", "close");
+    };
+    document.getElementById("btn-min").onclick = () => {
+        window.sendToPanel("window", "minimize");
+    };
+    document.getElementById("btn-max").onclick = () => {
+        window.sendToPanel("window", "maximize");
+    };
+
+    // ===== 타이틀바 드래그 =====
+    const titlebar = document.getElementById("titlebar");
+
+    titlebar.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest("#titlebar-window-controls")) return;
+        if (e.target.closest("#titlebar-menu")) return;
+
         e.preventDefault();
-        if (window.editorInstance) window.editorInstance.trigger("kb", "undo", null);
-    }
 
-    // Ctrl + Shift + Z   -> redo
-    if (e.ctrlKey && e.shiftKey && e.key === "z") {
-        e.preventDefault();12
-        
-        if (window.editorInstance) window.editorInstance.trigger("kb", "redo", null);
-    }
-});
-
-document.getElementById("btn-close").onclick = () => {
-    window.sendToPanel("window", "close");
-};
-document.getElementById("btn-min").onclick = () => {
-    window.sendToPanel("window", "minimize");
-};
-document.getElementById("btn-max").onclick = () => {
-    window.sendToPanel("window", "maximize");
-};
-
-// ===== 창 이동 (타이틀바 드래그) =====
-const titlebar = document.getElementById("titlebar");
-
-titlebar.addEventListener("mousedown", (e) => {
-    // 왼쪽 버튼만, 메뉴/윈도우 버튼은 제외
-    if (e.button !== 0) return;
-    if (e.target.closest("#titlebar-window-controls")) return;
-    if (e.target.closest("#titlebar-menu")) return;
-
-    // 페이지 내 텍스트 선택/드래그 방지
-    e.preventDefault();
-
-    // GTK 측에 한 번만 begin_move 요청하면 이후 모션은 GTK가 처리
-    window.sendToPanel("window", JSON.stringify({
-        action: "begin_move",
-        button: 1,            // GTK에서 왼쪽 버튼은 1
-        x: e.screenX,
-        y: e.screenY
-    }));
-});
-
-
-</script>
+        window.sendToPanel("window", JSON.stringify({
+            action: "begin_move",
+            button: 1,
+            x: e.screenX,
+            y: e.screenY
+        }));
+    });
+    </script>
 </body>
 </html>

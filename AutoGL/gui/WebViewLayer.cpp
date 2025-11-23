@@ -5,6 +5,7 @@
 #include <webview/webview.h>
 #include "panels/Sidebar.hpp"
 #include "panels/TreeView.hpp"
+#include "panels/TerminalPanel.hpp"
 
 #if defined(__linux__)
 #include <gtk/gtk.h>
@@ -21,6 +22,12 @@ void WebViewLayer::run() {
     // 패널 등록
     panelManager.registerPanel(std::make_shared<Sidebar>());
     panelManager.registerPanel(std::make_shared<TreeViewPanel>());
+
+    auto term = std::make_shared<TerminalPanel>();
+    term->webviewEval = [&](const std::string& js) {
+        w.eval(js);
+    };
+    panelManager.registerPanel(term);
 
     // JS -> C++
     w.bind("panelMessage", [&](std::string data) -> std::string {
@@ -92,7 +99,7 @@ void WebViewLayer::run() {
         // ===== 일반 패널 메시지 처리 =====
         std::string resp = panelManager.dispatch(panel, body);
 
-        // C++ → JS 메시지 전달
+        // C++ -> JS 메시지 전달
         std::string jsCall =
             "window.handlePanelMessage("
             "'" + panel + "',"
